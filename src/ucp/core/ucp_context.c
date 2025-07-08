@@ -362,7 +362,7 @@ static ucs_config_field_t ucp_context_config_table[] = {
 
   {"RNDV_FRAG_MEM_TYPES", "host,cuda",
    "Memory types of fragments used for RNDV pipeline protocol.\n"
-   "Allowed memory types are: host, cuda, rocm, ze-host, ze-device",
+   "Allowed memory types are: host, cuda, rocm, ze-host, ze-device, gaudi",
    ucs_offsetof(ucp_context_config_t, rndv_frag_mem_types),
    UCS_CONFIG_TYPE_BITMAP(ucs_memory_type_names)},
 
@@ -1683,6 +1683,9 @@ ucp_add_component_resources(ucp_context_h context, ucp_rsc_index_t cmpt_index,
 
         ucs_memory_type_for_each(mem_type) {
             if (md_attr->flags & UCT_MD_FLAG_REG) {
+                ucs_debug("Processing MD[%d] %s for memory type %s (reg_mem_types=0x%lx, alloc_mem_types=0x%lx)",
+                          md_index, context->tl_mds[md_index].rsc.md_name,
+                          ucs_memory_type_names[mem_type], md_attr->reg_mem_types, md_attr->alloc_mem_types);
                 if ((context->config.ext.reg_nb_mem_types & UCS_BIT(mem_type)) &&
                     !(md_attr->reg_nonblock_mem_types & UCS_BIT(mem_type))) {
                     if (md_attr->reg_mem_types & UCS_BIT(mem_type)) {
@@ -1698,6 +1701,9 @@ ucp_add_component_resources(ucp_context_h context, ucp_rsc_index_t cmpt_index,
 
                 if (md_attr->reg_mem_types & UCS_BIT(mem_type)) {
                     context->reg_md_map[mem_type] |= UCS_BIT(md_index);
+                    ucs_debug("MD[%d] %s supports memory type %s (reg_mem_types=0x%lx)",
+                              md_index, context->tl_mds[md_index].rsc.md_name,
+                              ucs_memory_type_names[mem_type], md_attr->reg_mem_types);
                 }
 
                 if (md_attr->cache_mem_types & UCS_BIT(mem_type)) {

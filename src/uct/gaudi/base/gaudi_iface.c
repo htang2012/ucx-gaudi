@@ -1,7 +1,5 @@
 /**
- * Copyright (c) 2019, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * Copyright (C) 2020, HabanaLabs, Ltd. an Intel Company.
- *
+ * Copyright (c) 2025, Habana Labs Ltd. an Intel Company. All rights reserved.
  * See file LICENSE for terms.
  */
 
@@ -16,15 +14,23 @@
 #include <ucs/type/class.h>
 
 
-#define UCT_GAUDI_DEV_NAME "gaudi"
-
+ucs_status_t
+uct_gaudi_base_query_devices_common(
+        uct_md_h md, uct_device_type_t dev_type,
+        uct_tl_device_resource_t **tl_devices_p, unsigned *num_tl_devices_p)
+{
+    return uct_single_device_resource(md, md->component->name,
+                                      dev_type,
+                                      UCS_SYS_DEVICE_ID_UNKNOWN,
+                                      tl_devices_p, num_tl_devices_p);
+}
 
 ucs_status_t
 uct_gaudi_base_query_devices(uct_md_h md,
                              uct_tl_device_resource_t **tl_devices_p,
                              unsigned *num_tl_devices_p)
 {
-    return uct_single_device_resource(md, UCT_GAUDI_DEV_NAME,
+    return uct_single_device_resource(md, md->component->name,
                                       UCT_DEVICE_TYPE_ACC,
                                       UCS_SYS_DEVICE_ID_UNKNOWN,
                                       tl_devices_p, num_tl_devices_p);

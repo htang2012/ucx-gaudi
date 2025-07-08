@@ -27,11 +27,17 @@ AS_IF([test "x$gaudi_checked" != "xyes"],
                [
                 AS_IF([test "x$with_gaudi" = "xguess" -o "x$with_gaudi" = "xyes"],
                       [
-                       GAUDI_CPPFLAGS="-I/usr/include/habanalabs -I/usr/include/drm -DHAVE_GAUDI=1 -DHAVE_HLTHUNK_H=1"
+                       GAUDI_CPPFLAGS="-I/usr/include/habanalabs"
+                       GAUDI_CPPFLAGS="$GAUDI_CPPFLAGS -I/usr/include/drm"
+                       GAUDI_CPPFLAGS="$GAUDI_CPPFLAGS -I/usr/include/libdrm"
+                       GAUDI_CPPFLAGS="$GAUDI_CPPFLAGS -DHAVE_GAUDI=1 -DHAVE_HLTHUNK_H=1"
                        GAUDI_LDFLAGS="-L/usr/lib/habanalabs"
                       ],
                       [
-                       GAUDI_CPPFLAGS="-I${with_gaudi}/include/habanalabs -I${with_gaudi}/include/drm -DHAVE_GAUDI=1 -DHAVE_HLTHUNK_H=1"
+                       GAUDI_CPPFLAGS="-I${with_gaudi}/include/habanalabs"
+                       GAUDI_CPPFLAGS="$GAUDI_CPPFLAGS -I${with_gaudi}/include/drm"
+                       GAUDI_CPPFLAGS="$GAUDI_CPPFLAGS -I${with_gaudi}/include/libdrm"
+                       GAUDI_CPPFLAGS="$GAUDI_CPPFLAGS -DHAVE_GAUDI=1 -DHAVE_HLTHUNK_H=1"
                        GAUDI_LDFLAGS="-L${with_gaudi}/lib/habanalabs"
                       ])
                ])

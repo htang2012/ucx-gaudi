@@ -7,7 +7,7 @@ if HAVE_GAUDI
 SUBDIRS = . 
 
 module_LTLIBRARIES      = libuct_gaudi.la
-libuct_gaudi_la_CPPFLAGS = $(BASE_CPPFLAGS) $(GAUDI_CPPFLAGS)
+libuct_gaudi_la_CPPFLAGS = $(BASE_CPPFLAGS) $(GAUDI_CPPFLAGS) -I/usr/include/drm -I/usr/include/libdrm
 libuct_gaudi_la_CFLAGS   = $(BASE_CFLAGS) $(GAUDI_CFLAGS) $(LT_CFLAGS)
 libuct_gaudi_la_LDFLAGS  = $(GAUDI_LDFLAGS) -version-info $(SOVERSION)
 libuct_gaudi_la_LIBADD   = $(top_builddir)/src/ucs/libucs.la \
@@ -33,6 +33,7 @@ noinst_HEADERS = \
 	copy/gaudi_copy_md.h \
 	copy/gaudi_copy_iface.h \
 	copy/gaudi_copy_ep.h \
+	base/gaudi.h \
 	base/gaudi_md.h \
 	copy/gaudi_copy.h \
 	ipc/gaudi_ipc_md.h \

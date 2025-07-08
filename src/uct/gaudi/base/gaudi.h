@@ -1,5 +1,6 @@
 /**
- * Copyright (c) 2024, Habana Labs Ltd. an Intel Company
+ * Copyright (c) 2025, Habana Labs Ltd. an Intel Company. All rights reserved.
+ * See file LICENSE for terms.
  */
 
 #ifndef UCT_GAUDI_H
