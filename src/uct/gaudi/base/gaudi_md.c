@@ -105,6 +105,7 @@ uct_gaudi_base_query_md_resources(uct_component_t *component,
                                  unsigned *num_resources_p)
 {
     const unsigned sys_device_priority = 10;
+    uct_md_resource_desc_t *resources;
     ucs_sys_device_t sys_dev;
     ucs_status_t status;
     char device_name[10];
@@ -129,8 +130,21 @@ uct_gaudi_base_query_md_resources(uct_component_t *component,
         }
     }
 
-    return uct_md_query_single_md_resource(component, resources_p,
-                                           num_resources_p);
+    ucs_debug("Successfully detected Gaudi devices");
+    resources = calloc(num_gpus, sizeof(*resources));
+    if (resources == NULL) {
+        ucs_error("Failed to allocate memory for Gaudi MD resources");
+        return UCS_ERR_NO_MEMORY;
+    }
+
+    for (i = 0; i < num_gpus; ++i) {
+        snprintf(resources[i].md_name, sizeof(resources[i].md_name),
+                 "gaudi%d", i);
+    }
+    *num_resources_p = num_gpus;
+    *resources_p = resources;
+    return UCS_OK;
+
 }
 
 UCS_MODULE_INIT() {
