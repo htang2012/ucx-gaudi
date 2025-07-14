@@ -290,6 +290,28 @@ gtest_LDADD += \
 endif
 endif
 
+if HAVE_GAUDI
+# Temporarily disabled due to API compatibility issues:
+
+gtest_SOURCES += \
+	uct/gaudi/test_gaudi_md.cc \
+	uct/gaudi/test_gaudi_dma.cc \
+    uct/gaudi/test_gaudi_transport.cc \
+    uct/gaudi/test_gaudi_performance.cc \
+    uct/gaudi/test_gaudi_advanced.cc \
+    uct/gaudi/test_gaudi_error_handling.cc \
+    uct/gaudi/test_gaudi_integration.cc \
+    uct/gaudi/test_gaudi_dma_comprehensive.cc \
+    uct/gaudi/test_gaudi_stress.cc
+
+gtest_CPPFLAGS += \
+	-I$(abs_top_srcdir)/src/uct/gaudi
+
+gtest_LDADD += \
+	$(GAUDI_LIBS) -lhl-thunk \
+	$(top_builddir)/src/uct/gaudi/libuct_gaudi.la
+endif
+
 noinst_HEADERS = \
 	common/mem_buffer.h \
 	common/test.h \
@@ -306,6 +328,7 @@ noinst_HEADERS = \
 	uct/uct_test.h \
 	uct/test_md.h \
 	uct/test_peer_failure.h \
+	uct/gaudi/test_gaudi_common.h \
 	\
 	ucp/test_ucp_memheap.h \
 	ucp/test_ucp_tag.h \

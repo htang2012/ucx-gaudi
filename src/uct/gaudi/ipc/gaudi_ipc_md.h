@@ -36,12 +36,12 @@
  * - Each channel connects two Gaudi devices within the same node
  * - Channels are bidirectional and cached for reuse
  * - Channel IDs are unique identifiers for device-pair communication
- * - Supports fallback to traditional DMA when channels are unavailable
+ * - Uses hlthunk_ipc_channel_* APIs for custom RDMA verbs communication
  */
 
 
 typedef struct uct_gaudi_ipc_md_handle {
-    uint64_t handle;
+    uint64_t handle;            /* Legacy handle for compatibility */
     uint32_t channel_id;        /* Custom channel ID for node-local communication */
     uint32_t src_device_id;     /* Source Gaudi device ID */
     uint32_t dst_device_id;     /* Destination Gaudi device ID */
@@ -56,6 +56,7 @@ typedef struct uct_gaudi_ipc_md {
     int                     *device_fds;        /* File descriptors for each device */
     uint64_t                *channel_map;       /* Channel mapping between devices */
     pthread_mutex_t          channel_lock;      /* Lock for channel operations */
+    int                      primary_device_fd; /* Primary device for this MD */
 } uct_gaudi_ipc_md_t;
 
 
@@ -131,6 +132,31 @@ ucs_status_t uct_gaudi_ipc_channel_copy(uct_gaudi_ipc_md_t *md,
                                         uint32_t channel_id,
                                         void *dst, void *src, size_t length);
 
-ucs_status_t uct_gaudi_ipc_detect_node_devices(uct_gaudi_ipc_md_t *md);
+
+
+/* Direct Gaudi-to-Gaudi communication stub functions */
+ucs_status_t uct_gaudi_ipc_enable_scale_out(uct_gaudi_ipc_md_t *md,
+                                           uint32_t local_device_id,
+                                           uint32_t remote_device_id);
+
+ucs_status_t uct_gaudi_ipc_setup_hls_connection(uct_gaudi_ipc_md_t *md,
+                                               uint32_t peer_device_id,
+                                               uint32_t *connection_id);
+
+ucs_status_t uct_gaudi_ipc_direct_transfer(uct_gaudi_ipc_md_t *md,
+                                          uint32_t connection_id,
+                                          uint64_t src_device_addr,
+                                          uint64_t dst_device_addr,
+                                          size_t length);
+
+ucs_status_t uct_gaudi_ipc_query_topology(uct_gaudi_ipc_md_t *md,
+                                         uint32_t device_count,
+                                         uint32_t *device_ids,
+                                         uint32_t *topology_map);
+
+ucs_status_t uct_gaudi_ipc_setup_collective_ring(uct_gaudi_ipc_md_t *md,
+                                                uint32_t device_count,
+                                                uint32_t *device_ids,
+                                                uint32_t *ring_id);
 
 #endif

@@ -21,7 +21,7 @@ if [[ $RELEASE_BUILD -eq 1 ]]; then
 else
     echo "Building debug version..."
     # Configure with Gaudi support, using system habanalabs and drm includes/libs
-    ./configure --with-gaudi=/usr --prefix=/opt/ucx/install "$@"
+    ./configure --with-gaudi=/usr --enable-examples --prefix=$PWD/install "$@"
 fi
 
 # overall options

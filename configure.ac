@@ -241,6 +241,15 @@ AS_IF([test "x$with_docs_only" = xyes],
      m4_include([config/m4/java.m4])
      m4_include([config/m4/cuda.m4])
      m4_include([config/m4/gaudi.m4])
+
+     # Check for cJSON header and library
+     AC_CHECK_HEADERS([cjson/cJSON.h], [], [AC_MSG_ERROR([cJSON header not found. Please install libcjson-dev.])])
+     AC_CHECK_LIB([cjson], [cJSON_Parse], [], [AC_MSG_ERROR([cJSON library not found. Please install libcjson-dev.])])
+
+     # Warn if GAUDI_MAPPING_TABLE is not set at configure time
+     AS_IF([test -z "$GAUDI_MAPPING_TABLE"], [
+       AC_MSG_WARN([GAUDI_MAPPING_TABLE environment variable is not set. Gaudi device mapping may not work at runtime.])
+     ])
      m4_include([config/m4/rocm.m4])
      m4_include([config/m4/ze.m4])
      m4_include([config/m4/gdrcopy.m4])
@@ -273,8 +282,8 @@ AS_IF([test "x$with_docs_only" = xyes],
      AC_ARG_ENABLE([debug-data],
                    AS_HELP_STRING([--enable-debug-data],
                                   [Enable collecting data to ease debugging, default: NO]),
-		   [],
-		   [enable_debug_data=no])
+               [],
+               [enable_debug_data=no])
      AS_IF([test "x$enable_debug_data" = xyes],
            [AC_DEFINE([ENABLE_DEBUG_DATA], [1], [Enable collecting data])
             AC_DEFINE([UCT_UD_EP_DEBUG_HOOKS], [1],

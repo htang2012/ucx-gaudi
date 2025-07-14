@@ -256,6 +256,7 @@ static UCS_F_ALWAYS_INLINE size_t ucp_memh_length(const ucp_mem_h memh)
 #define UCP_MEM_IS_CUDA(_mem_type) ((_mem_type) == UCS_MEMORY_TYPE_CUDA)
 #define UCP_MEM_IS_ZE_HOST(_mem_type) ((_mem_type) == UCS_MEMORY_TYPE_ZE_HOST)
 #define UCP_MEM_IS_ZE_DEVICE(_mem_type) ((_mem_type) == UCS_MEMORY_TYPE_ZE_DEVICE)
+#define UCP_MEM_IS_GAUDI(_mem_type) ((_mem_type) == UCS_MEMORY_TYPE_GAUDI)
 #define UCP_MEM_IS_CUDA_MANAGED(_mem_type) ((_mem_type) == UCS_MEMORY_TYPE_CUDA_MANAGED)
 #define UCP_MEM_IS_ROCM_MANAGED(_mem_type) ((_mem_type) == UCS_MEMORY_TYPE_ROCM_MANAGED)
 #define UCP_MEM_IS_ZE_MANAGED(_mem_type) ((_mem_type) == UCS_MEMORY_TYPE_ZE_MANAGED)
@@ -266,6 +267,7 @@ static UCS_F_ALWAYS_INLINE size_t ucp_memh_length(const ucp_mem_h memh)
                                     UCS_BIT(UCS_MEMORY_TYPE_CUDA_MANAGED) | \
                                     UCS_BIT(UCS_MEMORY_TYPE_ROCM) | \
                                     UCS_BIT(UCS_MEMORY_TYPE_ZE_DEVICE) | \
-                                    UCS_BIT(UCS_MEMORY_TYPE_ZE_MANAGED)))
+                                    UCS_BIT(UCS_MEMORY_TYPE_ZE_MANAGED) | \
+                                    UCS_BIT(UCS_MEMORY_TYPE_GAUDI)))
 
 #endif
