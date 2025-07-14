@@ -137,7 +137,9 @@ static int uct_gaudi_copy_md_ensure_device_open(uct_gaudi_copy_md_t *md)
     /* Detect enhanced DMA-BUF support (Gaudi2+ feature) */
     if (md->hw_info.device_id >= HLTHUNK_DEVICE_GAUDI2) {
         /* Test if enhanced DMA-BUF API is available */
-        int test_fd = hlthunk_device_mapped_memory_export_dmabuf_fd(
+        int test_fd;
+        ucs_warn("Testing enhanced DMA-BUF support on device %d", md->device_index);
+        test_fd = hlthunk_device_mapped_memory_export_dmabuf_fd(
             md->hlthunk_fd, 0, 0, 0, 0);
         if (test_fd >= 0) {
             close(test_fd);
@@ -438,6 +440,7 @@ ucs_status_t uct_gaudi_copy_mem_alloc(uct_md_h md, size_t *length_p,
         
         /* Try enhanced DMA-BUF API first (Gaudi2+) */
         if (gaudi_md->config.mapped_dmabuf_supported) {
+            ucs_warn("Exporting memory as enhanced DMA-BUF fd for IB sharing");
             dmabuf_fd = hlthunk_device_mapped_memory_export_dmabuf_fd(
                 gaudi_md->hlthunk_fd, (uint64_t)addr, *length_p, 0, 0);
             if (dmabuf_fd >= 0) {
@@ -584,7 +587,9 @@ uct_gaudi_copy_md_mem_query(uct_md_h tl_md, const void *address, size_t length,
             mem_attr->dmabuf_fd = memh->dmabuf_fd;
         } else {
             /* No cached DMA-BUF FD found, try to export memory on-demand */
-            int export_fd = hlthunk_device_memory_export_dmabuf_fd(md->hlthunk_fd, 
+            int export_fd;
+            ucs_warn("No cached DMA-BUF FD found for address %p, exporting on-demand", address);
+            export_fd = hlthunk_device_memory_export_dmabuf_fd(md->hlthunk_fd, 
                                                                   (uint64_t)address, length, 0);
             if (export_fd >= 0) {
                 mem_attr->dmabuf_fd = export_fd;
@@ -711,6 +716,7 @@ ucs_status_t uct_gaudi_copy_export_dmabuf(uct_md_h md, void *address, size_t len
     
     /* Try enhanced DMA-BUF API first (Gaudi2+) */
     if (gaudi_md->config.mapped_dmabuf_supported) {
+        ucs_warn("Exporting memory as enhanced DMA-BUF fd for device-to-device IPC");
         fd = hlthunk_device_mapped_memory_export_dmabuf_fd(
             gaudi_md->hlthunk_fd, (uint64_t)address, length, 0, 0);
         if (fd >= 0) {

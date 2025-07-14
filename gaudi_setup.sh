@@ -1,6 +1,9 @@
 #!/bin/bash
 # filepath: gaudi_setup.sh
 
+export LD_LIBRARY_PATH=/opt/habanalabs/rdma-core/lib:/opt/habanalabs/src/hl-thunk/lib:/opt/habanalabs/src/hl-thunk/lib64:/workspace/ucx/install/lib:${LD_LIBRARY_PATH}
+export PATH=/opt/habanalabs/rdma-core/bin:/opt/habanalabs/src/hl-thunk/bin:/opt/habanalabs/src/hl-thunk/bin64:/workspace/ucx/install/bin:${PATH}
+
 # Check if hl-smi is available
 if ! command -v hl-smi &> /dev/null; then
     echo "Error: hl-smi not found in PATH"
