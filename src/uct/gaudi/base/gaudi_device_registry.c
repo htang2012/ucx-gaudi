@@ -28,7 +28,7 @@ typedef struct uct_gaudi_device_info {
 
 
 typedef struct uct_gaudi_device {
-    int         fd;
+    int         fd;         /* >0: valid fd, 0: not opened, -1: failed to open */
     int         ref_count;
 } uct_gaudi_device_t;
 
@@ -59,6 +59,13 @@ ucs_status_t uct_gaudi_device_open(int device_index, const char *bus_id_str, int
 
     pthread_mutex_lock(&uct_gaudi_device_registry_mutex);
 
+    /* Check if device previously failed to open */
+    if (uct_gaudi_devices[device_index].fd == -1) {
+        pthread_mutex_unlock(&uct_gaudi_device_registry_mutex);
+        return UCS_ERR_NO_DEVICE;
+    }
+
+    /* Check if device is already open and usable */
     if (uct_gaudi_devices[device_index].fd > 0) {
         uct_gaudi_devices[device_index].ref_count++;
         *fd_p = uct_gaudi_devices[device_index].fd;
@@ -69,6 +76,9 @@ ucs_status_t uct_gaudi_device_open(int device_index, const char *bus_id_str, int
     *fd_p = hlthunk_open(device_index, cached_bus_id);
     if (*fd_p < 0) {
         ucs_warn("Failed to open hlthunk device %d (bus_id=%s)", device_index, cached_bus_id);
+        /* Mark device as failed to prevent future retry attempts */
+        uct_gaudi_devices[device_index].fd = -1;
+        uct_gaudi_devices[device_index].ref_count = 0;
         pthread_mutex_unlock(&uct_gaudi_device_registry_mutex);
         return UCS_ERR_NO_DEVICE;
     }
@@ -100,7 +110,7 @@ void uct_gaudi_device_put(int fd)
     pthread_mutex_lock(&uct_gaudi_device_registry_mutex);
 
     for (i = 0; i < MAX_GAUDI_DEVICES; i++) {
-        if (uct_gaudi_devices[i].fd == fd) {
+        if (uct_gaudi_devices[i].fd == fd && fd > 0) {
             uct_gaudi_devices[i].ref_count--;
             if (uct_gaudi_devices[i].ref_count == 0) {
                 hlthunk_close(uct_gaudi_devices[i].fd);
