@@ -13,7 +13,7 @@ libuct_gaudi_la_LDFLAGS  = $(GAUDI_LDFLAGS) -version-info $(SOVERSION)
 libuct_gaudi_la_LIBADD   = $(top_builddir)/src/ucs/libucs.la \
 						  $(top_builddir)/src/uct/libuct.la \
 						  $(GAUDI_LIBS) \
-						  -lcjson
+						  -lhlml
 
 libuct_gaudi_la_SOURCES = \
 	base/gaudi_iface.c \

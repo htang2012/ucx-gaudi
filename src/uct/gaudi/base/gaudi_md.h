@@ -31,15 +31,6 @@ typedef struct uct_gaudi_mem_reg_params {
     uct_md_mem_reg_params_t super; // Must be first
     int gaudi_fd;
 } uct_gaudi_mem_reg_params_t;
-/**
- * Get the bus ID for a given Gaudi device from environment.
- *
- * @param [in]  gaudi_device     Gaudi device index.
- *
- * @return Bus ID structure, or all fields set to -1 if not found.
- */
-ucs_sys_bus_id_t uct_gaudi_get_busid_from_env(int gaudi_device, char *bus_id_str);
-int uct_gaudi_get_count_from_env(void);
 
 /**
  * Get the system device for a given Gaudi device.

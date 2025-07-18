@@ -36,7 +36,6 @@
 #include <hlthunk.h>
 #include <drm/habanalabs_accel.h>
 
-#include <cjson/cJSON.h>
 
 #define HLTHUNK_BUS_ID_MAX_LEN 32
 
@@ -1078,7 +1077,7 @@ uct_gaudi_copy_md_open(uct_component_t *component, const char *md_name,
     md->reg_cost = ucs_linear_func_make(config->reg_cost, 0);
 
     /* TOLERANT INITIALIZATION: Try to open device, but allow MD creation even if it fails */
-    uct_gaudi_get_busid_from_env(device_index, bus_id_str);
+    uct_gaudi_get_busid_from_cache(device_index, bus_id_str);
     status = uct_gaudi_device_open(device_index, bus_id_str, &md->hlthunk_fd);
 
     if (status != UCS_OK) {

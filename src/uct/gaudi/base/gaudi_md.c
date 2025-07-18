@@ -9,72 +9,15 @@
 
 #include "gaudi_md.h"
 #include "gaudi_iface.h"
+#include "gaudi_device_registry.h"
 
 #include <ucs/sys/module.h>
 #include <ucs/sys/string.h>
 #include <ucs/sys/topo/base/topo.h>
 #include <hlthunk.h>
 #include <errno.h>
-#include <cjson/cJSON.h>
 
 
-ucs_sys_bus_id_t uct_gaudi_get_busid_from_env(int gaudi_device, char *bus_id_str)
-{
-    ucs_sys_bus_id_t bus_id = {-1, -1, -1, -1}; /* Initialize with invalid values */
-    char pci_bus_id_str[64] = {0};
-    int domain, bus_num, device, function;
-    cJSON *table, *entry;
-    
-    const char *mapping_env = getenv("GAUDI_MAPPING_TABLE");
-    if (!mapping_env) {
-        ucs_debug("GAUDI_MAPPING_TABLE env not set for Gaudi device %d", gaudi_device);
-        return bus_id;
-    }
-    
-    table = cJSON_Parse(mapping_env);
-    if (!table || !cJSON_IsArray(table)) {
-        ucs_debug("GAUDI_MAPPING_TABLE: Invalid JSON array");
-        if (table) cJSON_Delete(table);
-        return bus_id;
-    }
-    
-    entry = NULL;
-    cJSON_ArrayForEach(entry, table) {
-        cJSON *index = cJSON_GetObjectItem(entry, "index");
-        cJSON *bus_id_json = cJSON_GetObjectItem(entry, "bus_id");
-        if (cJSON_IsNumber(index) && index->valueint == gaudi_device && cJSON_IsString(bus_id_json)) {
-            strncpy(pci_bus_id_str, bus_id_json->valuestring, sizeof(pci_bus_id_str)-1);
-            pci_bus_id_str[sizeof(pci_bus_id_str)-1] = '\0';
-            break;
-        }
-    }
-    cJSON_Delete(table);
-    
-    if (pci_bus_id_str[0] == '\0') {
-        ucs_debug("GAUDI_MAPPING_TABLE: No bus_id for Gaudi device %d", gaudi_device);
-        return bus_id;
-    }
-
-    ucs_snprintf_safe(bus_id_str, 64, "%s", pci_bus_id_str);
-
-    /* Parse PCI bus ID string: format is [domain]:[bus]:[device].[function] */
-    if (sscanf(pci_bus_id_str, "%x:%x:%x.%x", &domain, &bus_num, &device, &function) != 4) {
-        ucs_debug("Failed to parse PCI bus ID '%s' for Gaudi device %d", 
-                  pci_bus_id_str, gaudi_device);
-        return bus_id;
-    }
-
-    /* Convert to UCX bus ID format */
-    bus_id.domain   = domain;
-    bus_id.bus      = bus_num;
-    bus_id.slot     = device;
-    bus_id.function = function;
-
-    ucs_debug("Successfully parsed bus ID for Gaudi device %d (PCI: %s, domain=%d, bus=%d, slot=%d, func=%d)", 
-              gaudi_device, pci_bus_id_str, domain, bus_num, device, function);
-    
-    return bus_id;
-}
 
 
 void uct_gaudi_base_get_sys_dev(int gaudi_dev,
@@ -84,8 +27,8 @@ void uct_gaudi_base_get_sys_dev(int gaudi_dev,
     ucs_status_t status;
     char bus_id_buffer[64];
     
-    /* Get bus ID from environment */
-    bus_id_info = uct_gaudi_get_busid_from_env(gaudi_dev, bus_id_buffer);
+    /* Get bus ID from cache */
+    bus_id_info = uct_gaudi_get_busid_from_cache(gaudi_dev, bus_id_buffer);
     if (bus_id_info.domain == -1) {
         ucs_debug("System device detection failed for Gaudi device %d, will use unknown", gaudi_dev);
         *sys_dev_p = UCS_SYS_DEVICE_ID_UNKNOWN;
@@ -132,31 +75,6 @@ uct_gaudi_base_get_gaudi_device(ucs_sys_device_t sys_dev, int *dev_ptr)
     return UCS_OK;
 }
 
-int uct_gaudi_get_count_from_env(void)
-{
-    const char *env_mapping = getenv("GAUDI_MAPPING_TABLE");
-    int device_count = 0;
-    cJSON *json_table;
-    
-    if (!env_mapping) {
-        ucs_debug("GAUDI_MAPPING_TABLE env not set, no Gaudi devices available");
-        return 0;
-    }
-    
-    json_table = cJSON_Parse(env_mapping);
-    if (!json_table || !cJSON_IsArray(json_table)) {
-        ucs_debug("GAUDI_MAPPING_TABLE: Invalid JSON array");
-        if (json_table) cJSON_Delete(json_table);
-        return 0;
-    }
-    
-    device_count = cJSON_GetArraySize(json_table);
-    cJSON_Delete(json_table);
-    
-    ucs_debug("Found %d Gaudi devices in GAUDI_MAPPING_TABLE", device_count);
-    return device_count;
-}
-
 ucs_status_t
 uct_gaudi_base_query_md_resources(uct_component_t *component,
                                  uct_md_resource_desc_t **resources_p,
@@ -170,10 +88,12 @@ uct_gaudi_base_query_md_resources(uct_component_t *component,
     int i, num_gpus;
 
     /* Get Gaudi device count from environment */
-    num_gpus = uct_gaudi_get_count_from_env();
+    num_gpus = uct_gaudi_detect_devices();
     if (num_gpus <= 0) {
         return uct_md_query_empty_md_resource(resources_p, num_resources_p);
     }
+    /* Detect and initialize Gaudi devices */
+    ucs_debug("Detected %d Gaudi devices via HLML", num_gpus);
 
     for (i = 0; i < num_gpus; ++i) {
         uct_gaudi_base_get_sys_dev(i, &sys_dev);

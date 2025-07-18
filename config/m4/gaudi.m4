@@ -48,11 +48,21 @@ AS_IF([test "x$gaudi_checked" != "xyes"],
          # Check gaudi header files
          AC_CHECK_HEADERS([habanalabs/hlthunk.h],
                           [gaudi_happy="yes"], [gaudi_happy="no"])
+         
+         # Check for HLML header file
+         AS_IF([test "x$gaudi_happy" = "xyes"],
+               [AC_CHECK_HEADERS([habanalabs/hlml.h],
+                                [gaudi_happy="yes"], [gaudi_happy="no"])])
 
          # Check gaudi libraries
          AS_IF([test "x$gaudi_happy" = "xyes"],
                [AC_CHECK_LIB([hl-thunk], [hlthunk_get_version],
                              [GAUDI_LIBS="$GAUDI_LIBS -lhl-thunk"], [gaudi_happy="no"])])
+         
+         # Check for HLML library
+         AS_IF([test "x$gaudi_happy" = "xyes"],
+               [AC_CHECK_LIB([hlml], [hlml_init],
+                             [GAUDI_LIBS="$GAUDI_LIBS -lhlml"], [gaudi_happy="no"])])
 
          CPPFLAGS="$save_CPPFLAGS"
          LDFLAGS="$save_LDFLAGS"
