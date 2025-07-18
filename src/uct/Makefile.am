@@ -20,10 +20,10 @@ nobase_dist_libuct_la_HEADERS = \
 	api/tl.h \
 	api/uct_def.h \
 	api/uct.h \
-	api/version.h
+	api/version.h \
+	base/uct_md.h
 
 noinst_HEADERS = \
-	base/uct_md.h \
 	base/uct_component.h \
 	base/uct_iface.h \
 	base/uct_log.h \

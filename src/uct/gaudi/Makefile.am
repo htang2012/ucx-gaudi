@@ -19,6 +19,7 @@ libuct_gaudi_la_SOURCES = \
 	base/gaudi_iface.c \
 	base/gaudi_md.c \
 	base/gaudi_dma.c \
+	base/gaudi_device_registry.c \
 	copy/gaudi_copy_md.c \
 	copy/gaudi_copy_iface.c \
 	copy/gaudi_copy_ep.c \
@@ -31,6 +32,7 @@ noinst_HEADERS = \
 	base/gaudi_md.h \
 	base/gaudi_iface.h \
 	base/gaudi_dma.h \
+	base/gaudi_device_registry.h \
 	copy/gaudi_copy_md.h \
 	copy/gaudi_copy_iface.h \
 	copy/gaudi_copy_ep.h \

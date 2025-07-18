@@ -33,7 +33,7 @@ if [[ $RELEASE_BUILD -eq 1 ]]; then
     make -j8
 else
     echo "Building debug with maximum parallelism..."
-    make -j"$(nproc)"
+    make -j8
 fi
 
 # Explicitly build Gaudi transport library (if present)
@@ -60,7 +60,7 @@ make check || true
 # Build all testgroup executables
 if [ -d testgroup ]; then
     echo "\nBuilding all testgroup executables..."
-    (cd testgroup && make -j"$(nproc)")
+    (cd testgroup && make -j8)
 fi
 
 echo "\nUCX build and install complete. Gaudi support enabled."

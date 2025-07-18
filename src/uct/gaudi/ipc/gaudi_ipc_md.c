@@ -17,6 +17,8 @@
 #include <unistd.h>
 #include <ucs/debug/log.h>
 #include <ucs/sys/sys.h>
+#include <uct/gaudi/base/gaudi_md.h>
+#include <uct/gaudi/base/gaudi_device_registry.h>
 #include <ucs/debug/memtrack_int.h>
 
 /* Habana Labs driver interfaces */
@@ -227,7 +229,7 @@ static void uct_gaudi_ipc_md_close(uct_md_h md)
     if (gaudi_md->device_fds) {
         for (i = 0; i < gaudi_md->device_count; i++) {
             if (gaudi_md->device_fds[i] >= 0) {
-                hlthunk_close(gaudi_md->device_fds[i]);
+                uct_gaudi_device_put(gaudi_md->device_fds[i]);
             }
         }
         ucs_free(gaudi_md->device_fds);
@@ -245,7 +247,8 @@ static void uct_gaudi_ipc_md_close(uct_md_h md)
 /* Custom channel management functions for node-local communication */
 ucs_status_t uct_gaudi_ipc_detect_node_devices(uct_gaudi_ipc_md_t *md)
 {
-    int device_count, i, fd;
+    int device_count, i;
+    ucs_status_t status;
     
     device_count = hlthunk_get_device_count(HLTHUNK_DEVICE_DONT_CARE);
     if (device_count <= 0) {
@@ -268,13 +271,12 @@ ucs_status_t uct_gaudi_ipc_detect_node_devices(uct_gaudi_ipc_md_t *md)
     
     /* Open file descriptors for all devices in the node */
     for (i = 0; i < device_count; i++) {
-        fd = hlthunk_open(HLTHUNK_DEVICE_DONT_CARE, NULL);
-        if (fd < 0) {
+        status = uct_gaudi_device_get(i, &md->device_fds[i]);
+	if (status != UCS_OK) {
             ucs_debug("Failed to open Gaudi device %d for IPC", i);
             md->device_fds[i] = -1;
         } else {
-            md->device_fds[i] = fd;
-            ucs_debug("Opened Gaudi device %d with fd %d for IPC", i, fd);
+            ucs_debug("Opened Gaudi device %d with fd %d for IPC", i, md->device_fds[i]);
         }
     }
     

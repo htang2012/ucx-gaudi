@@ -55,6 +55,8 @@ ucs_sys_bus_id_t uct_gaudi_get_busid_from_env(int gaudi_device, char *bus_id_str
         return bus_id;
     }
 
+    ucs_snprintf_safe(bus_id_str, 64, "%s", pci_bus_id_str);
+
     /* Parse PCI bus ID string: format is [domain]:[bus]:[device].[function] */
     if (sscanf(pci_bus_id_str, "%x:%x:%x.%x", &domain, &bus_num, &device, &function) != 4) {
         ucs_debug("Failed to parse PCI bus ID '%s' for Gaudi device %d", 

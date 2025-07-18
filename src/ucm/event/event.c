@@ -613,7 +613,9 @@ ucs_status_t ucm_set_event_handler(int events, int priority,
 
     if (flags & UCM_EVENT_FLAG_EXISTING_ALLOC) {
         ucs_list_for_each(event_installer, &ucm_event_installer_list, list) {
-            event_installer->get_existing_alloc(handler);
+            if (event_installer->get_existing_alloc != NULL) {
+                event_installer->get_existing_alloc(handler);
+            }
         }
     }
 
