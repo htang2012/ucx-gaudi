@@ -114,15 +114,6 @@ static ucs_status_t uct_gaudi_copy_md_mem_query(uct_md_h uct_md, const void *add
 
 
 /* Check if Gaudi device is active - device must be opened during MD initialization */
-static inline int uct_gaudi_copy_md_is_device_active(uct_gaudi_copy_md_t *md)
-{
-    /* Check if device is properly opened */
-    if (md->hlthunk_fd < 0) {
-        ucs_debug("Gaudi device not active (fd=%d)", md->hlthunk_fd);
-        return 0;
-    }
-    return 1;
-}
 
 
 static uct_gaudi_mem_t*
@@ -366,7 +357,7 @@ ucs_status_t uct_gaudi_copy_mem_alloc(uct_md_h md, size_t *length_p,
     target_device_fd = gaudi_md->hlthunk_fd;
 
     /* Check if device is active - if not, this MD cannot allocate device memory */
-    if (!uct_gaudi_copy_md_is_device_active(gaudi_md)) {
+    if (gaudi_md->hlthunk_fd < 0) {
         ucs_debug("Gaudi MD device not active, cannot allocate device memory");
         return UCS_ERR_UNSUPPORTED;
     }
@@ -911,7 +902,7 @@ UCS_PROFILE_FUNC(ucs_status_t, uct_gaudi_copy_mem_reg_internal,
     uct_gaudi_mem_t *gaudi_memh;
 
     /* Check if device is active - if not, this MD cannot handle memory operations */
-    if (!uct_gaudi_copy_md_is_device_active(gaudi_md)) {
+    if (gaudi_md->hlthunk_fd < 0) {
         ucs_debug("Gaudi MD device not active, cannot register memory");
         return UCS_ERR_UNSUPPORTED;
     }

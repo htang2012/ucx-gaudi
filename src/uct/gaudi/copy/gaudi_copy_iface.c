@@ -115,14 +115,37 @@ static ucs_status_t uct_gaudi_copy_iface_query(uct_iface_h tl_iface,
     iface_attr->device_addr_len         = 0;
     iface_attr->ep_addr_len             = 0;
     iface_attr->cap.flags               = UCT_IFACE_FLAG_CONNECT_TO_IFACE |
+                                          UCT_IFACE_FLAG_GET_SHORT |
+                                          UCT_IFACE_FLAG_PUT_SHORT |
                                           UCT_IFACE_FLAG_GET_ZCOPY |
                                           UCT_IFACE_FLAG_PUT_ZCOPY |
-                                          UCT_IFACE_FLAG_PUT_SHORT |
                                           UCT_IFACE_FLAG_PENDING;
 
+    iface_attr->cap.put.max_short       = UINT_MAX;
+    iface_attr->cap.put.max_bcopy       = 0;
+    iface_attr->cap.put.min_zcopy       = 0;
     iface_attr->cap.put.max_zcopy       = SIZE_MAX;
-    iface_attr->cap.put.max_short       = 1024;
+    iface_attr->cap.put.opt_zcopy_align = 1;
+    iface_attr->cap.put.align_mtu       = iface_attr->cap.put.opt_zcopy_align;
+    iface_attr->cap.put.max_iov         = 1;
+    
+    iface_attr->cap.get.max_short       = UINT_MAX;
+    iface_attr->cap.get.max_bcopy       = 0;
+    iface_attr->cap.get.min_zcopy       = 0;
     iface_attr->cap.get.max_zcopy       = SIZE_MAX;
+    iface_attr->cap.get.opt_zcopy_align = 1;
+    iface_attr->cap.get.align_mtu       = iface_attr->cap.get.opt_zcopy_align;
+    iface_attr->cap.get.max_iov         = 1;
+
+    /* Active Message capabilities - disabled like CUDA/ROCm */
+    iface_attr->cap.am.max_short        = 0;
+    iface_attr->cap.am.max_bcopy        = 0;
+    iface_attr->cap.am.min_zcopy        = 0;
+    iface_attr->cap.am.max_zcopy        = 0;
+    iface_attr->cap.am.opt_zcopy_align  = 1;
+    iface_attr->cap.am.align_mtu        = iface_attr->cap.am.opt_zcopy_align;
+    iface_attr->cap.am.max_hdr          = 0;
+    iface_attr->cap.am.max_iov          = 1;
 
     iface_attr->latency                 = UCT_GAUDI_COPY_IFACE_LATENCY;
     iface_attr->bandwidth.dedicated     = 0;
@@ -132,6 +155,7 @@ static ucs_status_t uct_gaudi_copy_iface_query(uct_iface_h tl_iface,
 
     return UCS_OK;
 }
+
 
 /* Forward declarations */
 static UCS_CLASS_INIT_FUNC(uct_gaudi_copy_iface_t, uct_md_h md, uct_worker_h worker,
@@ -147,9 +171,14 @@ UCS_CLASS_DEFINE_NEW_FUNC(uct_gaudi_copy_iface_t, uct_iface_t, uct_md_h, uct_wor
 UCS_CLASS_DEFINE_DELETE_FUNC(uct_gaudi_copy_iface_t, uct_iface_t);
 
 static uct_iface_ops_t uct_gaudi_copy_iface_tl_ops = {
+    .ep_get_short             = uct_gaudi_copy_ep_get_short,
     .ep_put_short             = uct_gaudi_copy_ep_put_short,
-    .ep_put_zcopy             = uct_gaudi_copy_ep_put_zcopy,
     .ep_get_zcopy             = uct_gaudi_copy_ep_get_zcopy,
+    .ep_put_zcopy             = uct_gaudi_copy_ep_put_zcopy,
+    .ep_am_short              = (uct_ep_am_short_func_t)ucs_empty_function_return_unsupported,
+    .ep_am_short_iov          = (uct_ep_am_short_iov_func_t)ucs_empty_function_return_unsupported,
+    .ep_am_bcopy              = (uct_ep_am_bcopy_func_t)ucs_empty_function_return_unsupported,
+    .ep_am_zcopy              = (uct_ep_am_zcopy_func_t)ucs_empty_function_return_unsupported,
     .ep_pending_add           = (uct_ep_pending_add_func_t)ucs_empty_function_return_busy,
     .ep_pending_purge         = (uct_ep_pending_purge_func_t)ucs_empty_function,
     .ep_flush                 = (uct_ep_flush_func_t)ucs_empty_function_return_success,
@@ -197,7 +226,7 @@ static UCS_CLASS_INIT_FUNC(uct_gaudi_copy_iface_t, uct_md_h md, uct_worker_h wor
     UCS_CLASS_CALL_SUPER_INIT(uct_gaudi_iface_t, &uct_gaudi_copy_iface_tl_ops,
                               &uct_gaudi_copy_iface_internal_ops, md, worker,
                               params, tl_config);
-
+    
     self->id = (uintptr_t)self;
     self->config.bandwidth = config->bandwidth;
 

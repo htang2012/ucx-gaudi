@@ -16,6 +16,7 @@
 
 typedef uint64_t uct_gaudi_copy_iface_addr_t;
 
+
 typedef struct uct_gaudi_copy_iface {
     uct_gaudi_iface_t           super;
     /* used to store uuid and check iface reachability */

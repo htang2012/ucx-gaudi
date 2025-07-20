@@ -17,6 +17,10 @@ typedef struct uct_gaudi_copy_ep {
 UCS_CLASS_DECLARE_NEW_FUNC(uct_gaudi_copy_ep_t, uct_ep_t, const uct_ep_params_t *);
 UCS_CLASS_DECLARE_DELETE_FUNC(uct_gaudi_copy_ep_t, uct_ep_t);
 
+ucs_status_t uct_gaudi_copy_ep_get_short(uct_ep_h tl_ep, void *buffer,
+                                         unsigned length, uint64_t remote_addr,
+                                         uct_rkey_t rkey);
+
 ucs_status_t uct_gaudi_copy_ep_get_zcopy(uct_ep_h tl_ep,
                                         const uct_iov_t *iov, size_t iovcnt,
                                         uint64_t remote_addr, uct_rkey_t rkey,
@@ -32,5 +36,6 @@ ucs_status_t uct_gaudi_copy_ep_put_short(uct_ep_h tl_ep, const void *buffer,
                                          uct_rkey_t rkey);
 
 ucs_status_t uct_gaudi_copy_post_gaudi_async_copy(uct_ep_h tl_ep, void *dst, void *src, size_t length, uct_completion_t *comp);
+
 
 #endif

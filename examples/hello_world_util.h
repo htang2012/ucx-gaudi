@@ -16,9 +16,8 @@
 #include <time.h>
 #include <unistd.h>
 #include <netdb.h>
-
-#ifdef HAVE_CUDA
-#  include <cuda_runtime.h>
+#ifdef HAVE_GAUDI
+#  include <hlthunk.h>
 #endif
 
 
@@ -82,6 +81,16 @@ void *mem_type_malloc(size_t length)
         CUDA_FUNC(cudaMallocManaged(&ptr, length, cudaMemAttachGlobal));
         break;
 #endif
+    case UCS_MEMORY_TYPE_GAUDI:
+#ifdef HAVE_GAUDI
+    /* Actual Gaudi device memory allocation should go here */
+    fprintf(stderr, "[GAUDI] Allocating %zu bytes (real Gaudi alloc not implemented)\n", length);
+    ptr = NULL; /* Replace with real Gaudi allocation */
+#else
+    fprintf(stderr, "[GAUDI] Allocating %zu bytes (host fallback)\n", length);
+    ptr = malloc(length); /* Host fallback */
+#endif
+    break;
     default:
         fprintf(stderr, "Unsupported memory type: %d\n", test_mem_type);
         ptr = NULL;
@@ -103,6 +112,16 @@ void mem_type_free(void *address)
         CUDA_FUNC(cudaFree(address));
         break;
 #endif
+    case UCS_MEMORY_TYPE_GAUDI:
+#ifdef HAVE_GAUDI
+    /* Actual Gaudi device memory free should go here */
+    fprintf(stderr, "[GAUDI] Freeing memory (real Gaudi free not implemented)\n");
+    /* Replace with real Gaudi free */
+#else
+    fprintf(stderr, "[GAUDI] Freeing memory (host fallback)\n");
+    free(address); /* Host fallback */
+#endif
+    break;
     default:
         fprintf(stderr, "Unsupported memory type: %d\n", test_mem_type);
         break;
@@ -121,6 +140,16 @@ void *mem_type_memcpy(void *dst, const void *src, size_t count)
         CUDA_FUNC(cudaMemcpy(dst, src, count, cudaMemcpyDefault));
         break;
 #endif
+    case UCS_MEMORY_TYPE_GAUDI:
+#ifdef HAVE_GAUDI
+    /* Actual Gaudi device memcpy should go here */
+    fprintf(stderr, "[GAUDI] memcpy %zu bytes (real Gaudi memcpy not implemented)\n", count);
+    /* Replace with real Gaudi memcpy */
+#else
+    fprintf(stderr, "[GAUDI] memcpy %zu bytes (host fallback)\n", count);
+    memcpy(dst, src, count); /* Host fallback */
+#endif
+    break;
     default:
         fprintf(stderr, "Unsupported memory type: %d\n", test_mem_type);
         break;
@@ -141,6 +170,16 @@ void *mem_type_memset(void *dst, int value, size_t count)
         CUDA_FUNC(cudaMemset(dst, value, count));
         break;
 #endif
+    case UCS_MEMORY_TYPE_GAUDI:
+#ifdef HAVE_GAUDI
+    /* Actual Gaudi device memset should go here */
+    fprintf(stderr, "[GAUDI] memset %zu bytes (real Gaudi memset not implemented)\n", count);
+    /* Replace with real Gaudi memset */
+#else
+    fprintf(stderr, "[GAUDI] memset %zu bytes (host fallback)\n", count);
+    memset(dst, value, count); /* Host fallback */
+#endif
+    break;
     default:
         fprintf(stderr, "Unsupported memory type: %d", test_mem_type);
         break;
@@ -161,11 +200,12 @@ int check_mem_type_support(ucs_memory_type_t mem_type)
 #else
         return 0;
 #endif
+    case UCS_MEMORY_TYPE_GAUDI:
+        return 1; /* Assume support for Gaudi memory */
     default:
         fprintf(stderr, "Unsupported memory type: %d", mem_type);
         break;
     }
-
     return 0;
 }
 
@@ -179,10 +219,12 @@ ucs_memory_type_t parse_mem_type(const char *opt_arg)
     } else if (!strcmp(opt_arg, "cuda-managed") &&
                check_mem_type_support(UCS_MEMORY_TYPE_CUDA_MANAGED)) {
         return UCS_MEMORY_TYPE_CUDA_MANAGED;
+    } else if (!strcmp(opt_arg, "gaudi") &&
+               check_mem_type_support(UCS_MEMORY_TYPE_GAUDI)) {
+        return UCS_MEMORY_TYPE_GAUDI;
     } else {
         fprintf(stderr, "Unsupported memory type: \"%s\".\n", opt_arg);
     }
-
     return UCS_MEMORY_TYPE_LAST;
 }
 
@@ -198,6 +240,9 @@ void print_common_help()
     }
     if (check_mem_type_support(UCS_MEMORY_TYPE_CUDA_MANAGED)) {
         fprintf(stderr, "                cuda-managed - NVIDIA GPU managed/unified memory\n");
+    }
+    if (check_mem_type_support(UCS_MEMORY_TYPE_GAUDI)) {
+        fprintf(stderr, "                gaudi - Habana Gaudi device memory\n");
     }
 }
 

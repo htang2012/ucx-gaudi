@@ -65,6 +65,26 @@ uct_gaudi_copy_post_gaudi_async_copy(uct_ep_h tl_ep, void *dst, void *src,
     }
 }
 
+UCS_PROFILE_FUNC(ucs_status_t, uct_gaudi_copy_ep_get_short,
+                 (tl_ep, buffer, length, remote_addr, rkey),
+                 uct_ep_h tl_ep, void *buffer, unsigned length,
+                 uint64_t remote_addr, uct_rkey_t rkey)
+{
+    ucs_status_t status;
+
+    status = uct_gaudi_copy_post_gaudi_async_copy(tl_ep, buffer,
+                                                (void *)remote_addr,
+                                                length, NULL);
+    if (!UCS_STATUS_IS_ERR(status)) {
+        VALGRIND_MAKE_MEM_DEFINED(buffer, length);
+    }
+
+    UCT_TL_EP_STAT_OP(ucs_derived_of(tl_ep, uct_base_ep_t), GET, SHORT, length);
+    ucs_trace_data("GET_SHORT [ptr %p len %u] from 0x%" PRIx64, buffer,
+                   length, remote_addr);
+    return status;
+}
+
 UCS_PROFILE_FUNC(ucs_status_t, uct_gaudi_copy_ep_get_zcopy,
                  (tl_ep, iov, iovcnt, remote_addr, rkey, comp),
                  uct_ep_h tl_ep, const uct_iov_t *iov, size_t iovcnt,
