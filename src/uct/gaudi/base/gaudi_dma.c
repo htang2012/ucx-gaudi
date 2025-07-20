@@ -58,6 +58,77 @@ uct_gaudi_dma_get_direction(bool src_is_device, bool dst_is_device)
     }
 }
 
+/**
+ * @brief Execute the actual DMA operation using command buffer submission
+ */
+static ucs_status_t uct_gaudi_dma_execute_operation(int hlthunk_fd, 
+                                                   uint64_t src_dev_addr,
+                                                   uint64_t dst_dev_addr,
+                                                   size_t length,
+                                                   enum uct_gaudi_dma_direction dma_dir)
+{
+    ucs_status_t status = UCS_OK;
+    uint64_t cb_handle = 0;
+    void *cb_ptr = NULL;
+    int rc;
+    
+    /* Create command buffer using hl-thunk high-level API */
+    rc = hlthunk_request_command_buffer(hlthunk_fd, 4096, &cb_handle);
+    if (rc == 0 && cb_handle != 0) {
+        /* Map command buffer to user space */
+        cb_ptr = mmap(NULL, 4096, PROT_READ | PROT_WRITE, MAP_SHARED, 
+                     hlthunk_fd, cb_handle);
+        if (cb_ptr != MAP_FAILED) {
+            /* Use hlthunk's simplified DMA approach */
+            struct hlthunk_cs_in cs_in = {0};
+            struct hlthunk_cs_out cs_out = {0};
+            
+            /* Basic linear DMA packet structure (simplified) */
+            struct {
+                uint32_t opcode;      /* DMA opcode and direction */
+                uint32_t reserved0;
+                uint64_t src_addr;    /* Source address */
+                uint64_t dst_addr;    /* Destination address */
+                uint32_t size;        /* Transfer size */
+                uint32_t reserved[3];
+            } __attribute__((packed)) *dma_pkt = cb_ptr;
+            
+            /* Build DMA packet */
+            memset(dma_pkt, 0, sizeof(*dma_pkt));
+            dma_pkt->opcode = 0x11 | (dma_dir << 8);  /* LIN_DMA base opcode + direction */
+            dma_pkt->src_addr = src_dev_addr;
+            dma_pkt->dst_addr = dst_dev_addr;
+            dma_pkt->size = length;
+            
+            /* Submit command buffer */
+            cs_in.chunks_execute = &cb_handle;
+            cs_in.num_chunks_execute = 1;
+            cs_in.flags = 0;
+            
+            rc = hlthunk_command_submission(hlthunk_fd, &cs_in, &cs_out);
+            if (rc == 0) {
+                ucs_trace("Gaudi DMA copy: src=0x%lx -> dst=0x%lx, len=%zu, seq=%lu",
+                          src_dev_addr, dst_dev_addr, length, cs_out.seq);
+            } else {
+                ucs_debug("Gaudi DMA command submission failed: %d", rc);
+                status = UCS_ERR_IO_ERROR;
+            }
+            
+            munmap(cb_ptr, 4096);
+        } else {
+            ucs_debug("Failed to map Gaudi command buffer");
+            status = UCS_ERR_NO_MEMORY;
+        }
+        
+        hlthunk_destroy_command_buffer(hlthunk_fd, cb_handle);
+    } else {
+        ucs_debug("Failed to create Gaudi command buffer");
+        status = UCS_ERR_NO_RESOURCE;
+    }
+    
+    return status;
+}
+
 ucs_status_t uct_gaudi_dma_execute_copy(int hlthunk_fd, void *dst, void *src, 
                                        size_t length, 
                                        const struct hlthunk_hw_ip_info *hw_info)
@@ -114,65 +185,8 @@ ucs_status_t uct_gaudi_dma_execute_copy(int hlthunk_fd, void *dst, void *src,
     }
     
     /* Execute DMA operation */
-    {
-        uint64_t cb_handle = 0;
-        void *cb_ptr = NULL;
-        int rc;
-        
-        /* Create command buffer using hl-thunk high-level API */
-        rc = hlthunk_request_command_buffer(hlthunk_fd, 4096, &cb_handle);
-        if (rc == 0 && cb_handle != 0) {
-            /* Map command buffer to user space */
-            cb_ptr = mmap(NULL, 4096, PROT_READ | PROT_WRITE, MAP_SHARED, 
-                         hlthunk_fd, cb_handle);
-            if (cb_ptr != MAP_FAILED) {
-                /* Use hlthunk's simplified DMA approach */
-                struct hlthunk_cs_in cs_in = {0};
-                struct hlthunk_cs_out cs_out = {0};
-                
-                /* Basic linear DMA packet structure (simplified) */
-                struct {
-                    uint32_t opcode;      /* DMA opcode and direction */
-                    uint32_t reserved0;
-                    uint64_t src_addr;    /* Source address */
-                    uint64_t dst_addr;    /* Destination address */
-                    uint32_t size;        /* Transfer size */
-                    uint32_t reserved[3];
-                } __attribute__((packed)) *dma_pkt = cb_ptr;
-                
-                /* Build DMA packet */
-                memset(dma_pkt, 0, sizeof(*dma_pkt));
-                dma_pkt->opcode = 0x11 | (dma_dir << 8);  /* LIN_DMA base opcode + direction */
-                dma_pkt->src_addr = src_dev_addr;
-                dma_pkt->dst_addr = dst_dev_addr;
-                dma_pkt->size = length;
-                
-                /* Submit command buffer */
-                cs_in.chunks_execute = &cb_handle;
-                cs_in.num_chunks_execute = 1;
-                cs_in.flags = 0;
-                
-                rc = hlthunk_command_submission(hlthunk_fd, &cs_in, &cs_out);
-                if (rc == 0) {
-                    ucs_trace("Gaudi DMA copy: src=0x%lx -> dst=0x%lx, len=%zu, seq=%lu",
-                              src_dev_addr, dst_dev_addr, length, cs_out.seq);
-                } else {
-                    ucs_debug("Gaudi DMA command submission failed: %d", rc);
-                    status = UCS_ERR_IO_ERROR;
-                }
-                
-                munmap(cb_ptr, 4096);
-            } else {
-                ucs_debug("Failed to map Gaudi command buffer");
-                status = UCS_ERR_NO_MEMORY;
-            }
-            
-            hlthunk_destroy_command_buffer(hlthunk_fd, cb_handle);
-        } else {
-            ucs_debug("Failed to create Gaudi command buffer");
-            status = UCS_ERR_NO_RESOURCE;
-        }
-    }
+    status = uct_gaudi_dma_execute_operation(hlthunk_fd, src_dev_addr, dst_dev_addr, 
+                                             length, dma_dir);
     
     /* Cleanup: unmap host memory if we mapped it */
     if (need_unmap_src && src_dev_addr != 0) {
@@ -184,4 +198,3 @@ ucs_status_t uct_gaudi_dma_execute_copy(int hlthunk_fd, void *dst, void *src,
     
     return status;
 }
-
