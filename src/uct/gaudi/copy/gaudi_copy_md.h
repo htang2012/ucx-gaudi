@@ -13,7 +13,7 @@
 #include <ucs/datastruct/list.h>
 #include <ucs/type/spinlock.h>
 #include <ucs/stats/stats.h>
-#include <hlthunk.h>
+#include <synapse_api.h>
 
 /* Gaudi memory handle structure */
 typedef struct uct_gaudi_mem {
@@ -68,8 +68,9 @@ extern uct_component_t uct_gaudi_copy_component;
  */
 typedef struct uct_gaudi_copy_md {
     struct uct_md                super;           /* Domain info */
-    int                          hlthunk_fd;      /* Habana Labs device file descriptor */
-    int                          device_index;    /* Device index */
+    synDeviceId                  deviceId;    /* Device index */
+    synModuleId                  moduleId;    /* Module ID for Gaudi device */
+
     
     /* Registration cache components */
     ucs_rcache_t                *rcache;          /* Registration cache */
@@ -85,7 +86,7 @@ typedef struct uct_gaudi_copy_md {
         ucs_ternary_auto_value_t enable_hw_block_access; /* Direct hardware access */
     } config;
     
-    struct hlthunk_hw_ip_info    hw_info;         /* Hardware information */
+    synDeviceInfoV2 hw_info; /* Device information */
     char                        *device_type;     /* Device type string */
     ucs_list_link_t              memh_list;       /* List of allocated memory handles */
     ucs_recursive_spinlock_t     memh_lock;       /* Lock for memory handle list */
@@ -135,7 +136,7 @@ ucs_status_t uct_gaudi_copy_mkey_pack(uct_md_h md, uct_mem_h memh, void *address
 
 /* Enhanced error handling functions */
 const char* uct_gaudi_error_string(int error_code);
-ucs_status_t uct_gaudi_translate_error(int hlthunk_error);
+ucs_status_t uct_gaudi_translate_error(int synapse_error);
 
 /* Registration cache functions */
 ucs_status_t uct_gaudi_copy_rcache_mem_reg(uct_md_h md, void *address, size_t length,

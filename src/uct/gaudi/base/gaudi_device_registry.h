@@ -8,11 +8,12 @@
 
 #include <ucs/type/status.h>
 #include <ucs/sys/topo/base/topo.h>
+#include <habanalabs/synapse_api.h>
 
-ucs_status_t uct_gaudi_device_open(int device_index, const char *bus_id_str, int *fd_p);
-ucs_status_t uct_gaudi_device_get(int device_index, int *fd_p);
-void uct_gaudi_device_put(int fd);
-void uct_gaudi_device_close(int fd);
+ucs_status_t uct_gaudi_device_open(int , const char *bus_id_str, synDeviceId *device_id_p);
+ucs_status_t uct_gaudi_device_get(int device_index, synDeviceId *device_id_p);
+void uct_gaudi_device_put(synDeviceId device_id);
+void uct_gaudi_device_close(synDeviceId device_id);
 int uct_gaudi_detect_devices(void);
 
 /* Device info accessor functions */

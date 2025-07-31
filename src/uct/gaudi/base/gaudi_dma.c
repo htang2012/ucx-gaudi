@@ -12,32 +12,44 @@
 #include <sys/mman.h>
 #include <string.h>
 
-/* Habana Labs driver */
-#include <hlthunk.h>
+/* Synapse API */
+#include <habanalabs/synapse_api.h>
+#include <habanalabs/synapse_api_types.h>
+#include <habanalabs/synapse_common_types.h>
 
 /**
- * @brief Determine if an address is device memory based on hardware info
+ * @brief Determine if an address is device memory based on device properties
  */
-static bool uct_gaudi_dma_is_device_memory(void *addr, const struct hlthunk_hw_ip_info *hw_info)
+static bool uct_gaudi_dma_is_device_memory(void *addr, synDeviceId device_id)
 {
     uintptr_t addr_val = (uintptr_t)addr;
+    synDeviceInfo device_info;
+    synStatus status;
     
-    if (hw_info) {
-        /* Check if address is in DRAM range */
-        if (addr_val >= hw_info->dram_base_address && 
-            addr_val < (hw_info->dram_base_address + hw_info->dram_size)) {
-            return true;
-        }
-        
-        /* Check if address is in SRAM range */
-        if (addr_val >= hw_info->sram_base_address && 
-            addr_val < (hw_info->sram_base_address + hw_info->sram_size)) {
-            return true;
-        }
+    if (device_id == SYN_INVALID_DEVICE_ID) {
+        /* For IPC or when device_id is not available, assume device memory if address is high */
+        return (addr_val > 0x100000000UL); /* > 4GB typically indicates device memory */
     }
     
-    /* For IPC or when hw_info is not available, assume device memory if address is high */
-    return (addr_val > 0x100000000UL); /* > 4GB typically indicates device memory */
+    /* Get device information from Synapse API */
+    status = synDeviceGetInfo(device_id, &device_info);
+    if (status != synSuccess) {
+        /* Fallback to address-based detection */
+        return (addr_val > 0x100000000UL);
+    }
+    
+    /* Check if address is in device memory range */
+    if (addr_val >= device_info.dramBaseAddress && 
+        addr_val < (device_info.dramBaseAddress + device_info.dramSize)) {
+        return true;
+    }
+    
+    if (addr_val >= device_info.sramBaseAddress && 
+        addr_val < (device_info.sramBaseAddress + device_info.sramSize)) {
+        return true;
+    }
+    
+    return false;
 }
 
 /**
@@ -59,88 +71,77 @@ uct_gaudi_dma_get_direction(bool src_is_device, bool dst_is_device)
 }
 
 /**
- * @brief Execute the actual DMA operation using command buffer submission
+ * @brief Execute the actual DMA operation using Synapse API
  */
-static ucs_status_t uct_gaudi_dma_execute_operation(int hlthunk_fd, 
+static ucs_status_t uct_gaudi_dma_execute_operation(synDeviceId device_id, 
                                                    uint64_t src_dev_addr,
                                                    uint64_t dst_dev_addr,
                                                    size_t length,
                                                    enum uct_gaudi_dma_direction dma_dir)
 {
-    ucs_status_t status = UCS_OK;
-    uint64_t cb_handle = 0;
-    void *cb_ptr = NULL;
-    int rc;
+    synStatus status;
+    synStreamHandle stream_handle;
     
-    /* Create command buffer using hl-thunk high-level API */
-    rc = hlthunk_request_command_buffer(hlthunk_fd, 4096, &cb_handle);
-    if (rc == 0 && cb_handle != 0) {
-        /* Map command buffer to user space */
-        cb_ptr = mmap(NULL, 4096, PROT_READ | PROT_WRITE, MAP_SHARED, 
-                     hlthunk_fd, cb_handle);
-        if (cb_ptr != MAP_FAILED) {
-            /* Use hlthunk's simplified DMA approach */
-            struct hlthunk_cs_in cs_in = {0};
-            struct hlthunk_cs_out cs_out = {0};
-            
-            /* Basic linear DMA packet structure (simplified) */
-            struct {
-                uint32_t opcode;      /* DMA opcode and direction */
-                uint32_t reserved0;
-                uint64_t src_addr;    /* Source address */
-                uint64_t dst_addr;    /* Destination address */
-                uint32_t size;        /* Transfer size */
-                uint32_t reserved[3];
-            } __attribute__((packed)) *dma_pkt = cb_ptr;
-            
-            /* Build DMA packet */
-            memset(dma_pkt, 0, sizeof(*dma_pkt));
-            dma_pkt->opcode = 0x11 | (dma_dir << 8);  /* LIN_DMA base opcode + direction */
-            dma_pkt->src_addr = src_dev_addr;
-            dma_pkt->dst_addr = dst_dev_addr;
-            dma_pkt->size = length;
-            
-            /* Submit command buffer */
-            cs_in.chunks_execute = &cb_handle;
-            cs_in.num_chunks_execute = 1;
-            cs_in.flags = 0;
-            
-            rc = hlthunk_command_submission(hlthunk_fd, &cs_in, &cs_out);
-            if (rc == 0) {
-                ucs_trace("Gaudi DMA copy: src=0x%lx -> dst=0x%lx, len=%zu, seq=%lu",
-                          src_dev_addr, dst_dev_addr, length, cs_out.seq);
-            } else {
-                ucs_debug("Gaudi DMA command submission failed: %d", rc);
-                status = UCS_ERR_IO_ERROR;
-            }
-            
-            munmap(cb_ptr, 4096);
-        } else {
-            ucs_debug("Failed to map Gaudi command buffer");
-            status = UCS_ERR_NO_MEMORY;
-        }
-        
-        hlthunk_destroy_command_buffer(hlthunk_fd, cb_handle);
-    } else {
-        ucs_debug("Failed to create Gaudi command buffer");
-        status = UCS_ERR_NO_RESOURCE;
+    /* Create a stream for the operation */
+    status = synStreamCreateGeneric(&stream_handle, device_id, 0);
+    if (status != synSuccess) {
+        ucs_debug("Failed to create Synapse stream: %d", status);
+        return UCS_ERR_NO_RESOURCE;
     }
     
-    return status;
+    /* Execute DMA operation based on direction */
+    switch (dma_dir) {
+        case UCT_GAUDI_DMA_HOST_TO_DRAM:
+            status = synMemCopyAsync(stream_handle, src_dev_addr, length, 
+                                   dst_dev_addr, HOST_TO_DRAM);
+            break;
+        case UCT_GAUDI_DMA_DRAM_TO_HOST:
+            status = synMemCopyAsync(stream_handle, src_dev_addr, length, 
+                                   dst_dev_addr, DRAM_TO_HOST);
+            break;
+        case UCT_GAUDI_DMA_DRAM_TO_DRAM:
+            status = synMemCopyAsync(stream_handle, src_dev_addr, length, 
+                                   dst_dev_addr, DRAM_TO_DRAM);
+            break;
+        default:
+            ucs_debug("Unsupported DMA direction: %d", dma_dir);
+            synStreamDestroy(stream_handle);
+            return UCS_ERR_UNSUPPORTED;
+    }
+    
+    if (status != synSuccess) {
+        ucs_debug("Synapse DMA operation failed: %d", status);
+        synStreamDestroy(stream_handle);
+        return UCS_ERR_IO_ERROR;
+    }
+    
+    /* Wait for completion */
+    status = synStreamSynchronize(stream_handle);
+    if (status != synSuccess) {
+        ucs_debug("Synapse stream synchronization failed: %d", status);
+        synStreamDestroy(stream_handle);
+        return UCS_ERR_IO_ERROR;
+    }
+    
+    ucs_trace("Gaudi DMA copy completed: src=0x%lx -> dst=0x%lx, len=%zu",
+              src_dev_addr, dst_dev_addr, length);
+    
+    /* Clean up */
+    synStreamDestroy(stream_handle);
+    
+    return UCS_OK;
 }
 
-ucs_status_t uct_gaudi_dma_execute_copy(int hlthunk_fd, void *dst, void *src, 
-                                       size_t length, 
-                                       const struct hlthunk_hw_ip_info *hw_info)
+ucs_status_t uct_gaudi_dma_execute_copy(synDeviceId device_id, void *dst, void *src, 
+                                       size_t length)
 {
     ucs_status_t status = UCS_OK;
     uint64_t src_dev_addr = 0, dst_dev_addr = 0;
     enum uct_gaudi_dma_direction dma_dir;
     bool src_is_device, dst_is_device;
-    bool need_unmap_src = false, need_unmap_dst = false;
     
-    if (hlthunk_fd < 0) {
-        ucs_debug("Invalid hlthunk file descriptor");
+    if (device_id == SYN_INVALID_DEVICE_ID) {
+        ucs_debug("Invalid Synapse device ID");
         return UCS_ERR_INVALID_PARAM;
     }
     
@@ -149,8 +150,8 @@ ucs_status_t uct_gaudi_dma_execute_copy(int hlthunk_fd, void *dst, void *src,
     }
     
     /* Determine memory types */
-    src_is_device = uct_gaudi_dma_is_device_memory(src, hw_info);
-    dst_is_device = uct_gaudi_dma_is_device_memory(dst, hw_info);
+    src_is_device = uct_gaudi_dma_is_device_memory(src, device_id);
+    dst_is_device = uct_gaudi_dma_is_device_memory(dst, device_id);
     
     /* Get DMA direction */
     dma_dir = uct_gaudi_dma_get_direction(src_is_device, dst_is_device);
@@ -161,40 +162,23 @@ ucs_status_t uct_gaudi_dma_execute_copy(int hlthunk_fd, void *dst, void *src,
         src_dev_addr = (uint64_t)src;
         dst_dev_addr = (uint64_t)dst;
     } else if (!src_is_device && dst_is_device) {
-        /* Host to device: map source host memory */
-        src_dev_addr = hlthunk_host_memory_map(hlthunk_fd, src, 0, length);
-        if (src_dev_addr == 0) {
-            ucs_debug("Failed to map source host memory for DMA");
-            return UCS_ERR_NO_MEMORY;
-        }
-        need_unmap_src = true;
+        /* Host to device: use host memory directly for Synapse API */
+        src_dev_addr = (uint64_t)src;
         dst_dev_addr = (uint64_t)dst;
     } else if (src_is_device && !dst_is_device) {
-        /* Device to host: map destination host memory */
-        dst_dev_addr = hlthunk_host_memory_map(hlthunk_fd, dst, 0, length);
-        if (dst_dev_addr == 0) {
-            ucs_debug("Failed to map destination host memory for DMA");
-            return UCS_ERR_NO_MEMORY;
-        }
-        need_unmap_dst = true;
+        /* Device to host: use host memory directly for Synapse API */
         src_dev_addr = (uint64_t)src;
+        dst_dev_addr = (uint64_t)dst;
     } else {
-        /* Host to host - not supported by DMA */
-        ucs_debug("Host to host DMA not supported, use memcpy instead");
-        return UCS_ERR_UNSUPPORTED;
+        /* Host to host - not supported by DMA, use memcpy */
+        ucs_debug("Host to host DMA not supported, using memcpy instead");
+        memcpy(dst, src, length);
+        return UCS_OK;
     }
     
-    /* Execute DMA operation */
-    status = uct_gaudi_dma_execute_operation(hlthunk_fd, src_dev_addr, dst_dev_addr, 
+    /* Execute DMA operation using Synapse API */
+    status = uct_gaudi_dma_execute_operation(device_id, src_dev_addr, dst_dev_addr, 
                                              length, dma_dir);
-    
-    /* Cleanup: unmap host memory if we mapped it */
-    if (need_unmap_src && src_dev_addr != 0) {
-        hlthunk_memory_unmap(hlthunk_fd, src_dev_addr);
-    }
-    if (need_unmap_dst && dst_dev_addr != 0) {
-        hlthunk_memory_unmap(hlthunk_fd, dst_dev_addr);
-    }
     
     return status;
 }

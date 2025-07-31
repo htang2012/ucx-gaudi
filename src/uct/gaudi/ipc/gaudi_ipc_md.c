@@ -22,7 +22,7 @@
 #include <ucs/debug/memtrack_int.h>
 
 /* Habana Labs driver interfaces */
-#include <hlthunk.h>
+#include <habanalabs/synapse_api.h>
 #include <drm/habanalabs_accel.h>
 
 /**
@@ -209,8 +209,7 @@ uct_gaudi_ipc_mem_dereg(uct_md_h md, const uct_md_mem_dereg_params_t *params)
     ucs_list_for_each_safe(key, tmp, &memh->list, link) {
         /* Clean up custom channel handle if needed */
         if (key->ph.handle != 0) {
-            /* Stub - IPC functions not available in current HL-thunk */
-            /* hlthunk_ipc_handle_close(key->ph.handle); */
+            /* IPC channels not supported in Synapse API */
         }
         
         ucs_free(key);
@@ -226,13 +225,13 @@ static void uct_gaudi_ipc_md_close(uct_md_h md)
     int i;
     
     /* Cleanup device file descriptors */
-    if (gaudi_md->device_fds) {
+    if (gaudi_md->deviceIds) {
         for (i = 0; i < gaudi_md->device_count; i++) {
-            if (gaudi_md->device_fds[i] >= 0) {
-                uct_gaudi_device_put(gaudi_md->device_fds[i]);
+            if (gaudi_md->deviceIds[i] >= 0) {
+                uct_gaudi_device_put(gaudi_md->deviceIds[i]);
             }
         }
-        ucs_free(gaudi_md->device_fds);
+        ucs_free(gaudi_md->deviceIds);
     }
     
     /* Cleanup channel map */
@@ -247,36 +246,37 @@ static void uct_gaudi_ipc_md_close(uct_md_h md)
 /* Custom channel management functions for node-local communication */
 ucs_status_t uct_gaudi_ipc_detect_node_devices(uct_gaudi_ipc_md_t *md)
 {
-    int device_count, i;
+    uint32_t device_count, i;
+    synStatus syn_status;
     ucs_status_t status;
     
-    device_count = hlthunk_get_device_count(HLTHUNK_DEVICE_DONT_CARE);
-    if (device_count <= 0) {
+    syn_status = synDeviceGetCount(&device_count);
+    if (syn_status != synSuccess) {
         ucs_debug("No Gaudi devices found in node");
         return UCS_ERR_NO_DEVICE;
     }
     
     md->device_count = device_count;
-    md->device_fds = ucs_calloc(device_count, sizeof(int), "gaudi_ipc_device_fds");
-    if (!md->device_fds) {
+    md->deviceIds = ucs_calloc(device_count, sizeof(synDeviceId), "gaudi_ipc_device_ids");
+    if (!md->deviceIds) {
         return UCS_ERR_NO_MEMORY;
     }
     
     md->channel_map = ucs_calloc(device_count * device_count, sizeof(uint64_t), 
                                 "gaudi_ipc_channel_map");
     if (!md->channel_map) {
-        ucs_free(md->device_fds);
+        ucs_free(md->deviceIds);
         return UCS_ERR_NO_MEMORY;
     }
     
     /* Open file descriptors for all devices in the node */
     for (i = 0; i < device_count; i++) {
-        status = uct_gaudi_device_get(i, &md->device_fds[i]);
+        status = uct_gaudi_device_open(i, NULL, &md->deviceIds[i]);
 	if (status != UCS_OK) {
             ucs_debug("Failed to open Gaudi device %d for IPC", i);
-            md->device_fds[i] = -1;
+            md->deviceIds[i] = -1;
         } else {
-            ucs_debug("Opened Gaudi device %d with fd %d for IPC", i, md->device_fds[i]);
+            ucs_debug("Opened Gaudi device %d with fd %d for IPC", i, md->deviceIds[i]);
         }
     }
     
@@ -296,8 +296,8 @@ ucs_status_t uct_gaudi_ipc_channel_create(uct_gaudi_ipc_md_t *md,
     if (src_device >= md->device_count || dst_device >= md->device_count) {
         return UCS_ERR_INVALID_PARAM;
     }
-    
-    if (md->device_fds[src_device] < 0 || md->device_fds[dst_device] < 0) {
+
+    if (md->deviceIds[src_device] < 0 || md->deviceIds[dst_device] < 0) {
         return UCS_ERR_NO_DEVICE;
     }
     
@@ -466,8 +466,8 @@ uct_gaudi_ipc_md_open(uct_component_t *component, const char *md_name,
     }
     
     /* Set primary device for custom channel operations */
-    if (md->device_count > 0 && md->device_fds && md->device_fds[0] >= 0) {
-        md->primary_device_fd = md->device_fds[0];
+    if (md->device_count > 0 && md->deviceIds && md->deviceIds[0] >= 0) {
+        md->primary_device_fd = md->deviceIds[0];
         ucs_debug("Set primary device fd=%d for custom channel operations", md->primary_device_fd);
     } else {
         md->primary_device_fd = -1;

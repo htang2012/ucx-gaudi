@@ -71,7 +71,6 @@ uct_gaudi_ipc_post_gaudi_async_copy(uct_ep_h tl_ep, uint64_t remote_addr,
     ucs_status_t status;
     void *dst, *src;
     size_t offset;
-    int hlthunk_fd;
 
     if (ucs_unlikely(0 == iov[0].length)) {
         ucs_trace_data("Zero length request: skip it");
@@ -105,15 +104,12 @@ uct_gaudi_ipc_post_gaudi_async_copy(uct_ep_h tl_ep, uint64_t remote_addr,
         /* Fall through to DMA copy if channel copy fails */
     }
 
-    /* Implement proper DMA copy using shared utility function */
-    hlthunk_fd = (md->device_count > 0 && md->device_fds) ? md->device_fds[0] : -1;
-    status = uct_gaudi_dma_execute_copy(hlthunk_fd, dst, src, iov[0].length, NULL);
-    if (status != UCS_OK) {
-        ucs_debug("DMA copy failed, falling back to memcpy: %s", 
-                  ucs_status_string(status));
-        memcpy(dst, src, iov[0].length);
-        status = UCS_OK;
-    }
+    /* Fall back to direct memory copy for now */
+    /* Note: synMemCopyAsync requires proper device context and stream setup */
+    /* This is a temporary fallback until proper Synapse API integration is implemented */
+    ucs_debug("Using memcpy fallback for IPC copy (Synapse API integration pending)");
+    memcpy(dst, src, iov[0].length);
+    status = UCS_OK;
 
 out:
     return status;

@@ -53,15 +53,15 @@ uct_gaudi_copy_post_gaudi_async_copy(uct_ep_h tl_ep, void *dst, void *src,
                                    size_t length, uct_completion_t *comp)
 {
    
-    /* Access hlthunk_fd from the Gaudi MD via iface->super.md */
+    /* Access device ID from the Gaudi MD via iface->super.md */
     uct_gaudi_copy_iface_t *iface = ucs_derived_of(tl_ep->iface, uct_gaudi_copy_iface_t);
     uct_md_h md = iface->super.super.md;
     uct_gaudi_copy_md_t *gaudi_md = ucs_derived_of(md, uct_gaudi_copy_md_t);
-    int hlthunk_fd = gaudi_md->hlthunk_fd;
+    synDeviceId device_id = gaudi_md->deviceId;
     if (!length) {
         return UCS_OK;
     } else {
-        return uct_gaudi_dma_execute_copy(hlthunk_fd, dst, src, length, NULL);
+        return uct_gaudi_dma_execute_copy(device_id, dst, src, length);
     }
 }
 

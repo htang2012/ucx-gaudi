@@ -15,18 +15,18 @@ AS_IF([test "x$with_gaudi_perftest" != "xno"],
        save_LDFLAGS="$LDFLAGS"
        save_LIBS="$LIBS"
        
-       # Use system-provided hl-thunk
+       # Use system habanalabs installation
        GAUDI_CPPFLAGS="-I/usr/include/habanalabs"
-       GAUDI_LIBS="-L/usr/lib/habanalabs -lhl-thunk"
-       
-       CPPFLAGS="$CPPFLAGS $GAUDI_CPPFLAGS"
+       GAUDI_LIBS="-L/usr/lib/habanalabs -lSynapse"
        LDFLAGS="$LDFLAGS -L/usr/lib/habanalabs"
        
-       # Check for hlthunk.h header directly
-       AC_CHECK_HEADER([habanalabs/hlthunk.h],
+       CPPFLAGS="$CPPFLAGS $GAUDI_CPPFLAGS"
+       
+       # Check for synapse_api.h header directly
+       AC_CHECK_HEADER([habanalabs/synapse_api.h],
                        [
-                        # Check for hlthunk library function
-                        AC_CHECK_LIB([hl-thunk], [hlthunk_open],
+                        # Check for Synapse library function
+                        AC_CHECK_LIB([Synapse], [synInitialize],
                                      [
                                       have_gaudi_perftest=yes
                                       ucx_perftest_modules="${ucx_perftest_modules}:gaudi"

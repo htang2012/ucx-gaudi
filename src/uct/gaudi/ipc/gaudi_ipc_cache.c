@@ -16,21 +16,7 @@
 #include <ucs/sys/ptr_arith.h>
 #include <ucs/datastruct/khash.h>
 
-/* Conditional hlthunk function declarations and stubs */
-#ifndef HAVE_HLTHUNK_IPC_HANDLE_CLOSE
-static inline int hlthunk_ipc_handle_close(uint64_t handle) {
-    ucs_warn("hlthunk_ipc_handle_close not available, using stub");
-    return 0; /* Stub implementation */
-}
-#endif
 
-#ifndef HAVE_HLTHUNK_IPC_HANDLE_MAP
-static inline int hlthunk_ipc_handle_map(uint64_t memh, void **mapped_addr) {
-    ucs_warn("hlthunk_ipc_handle_map not available, using stub");
-    *mapped_addr = NULL;
-    return -1; /* Stub implementation indicating failure */
-}
-#endif
 
 
 typedef struct uct_gaudi_ipc_cache_hash_key {
@@ -93,7 +79,15 @@ uct_gaudi_ipc_cache_region_collect_callback(const ucs_pgtable_t *pgtable,
 static ucs_status_t
 uct_gaudi_ipc_close_memhandle(uct_gaudi_ipc_cache_region_t *region)
 {
-    return hlthunk_ipc_handle_close(region->key.ph.handle);
+    synStatus syn_status;
+
+    syn_status = synDeviceFree(region->key.ph.src_device_id, region->key.ph.handle, 0);
+    if (syn_status != synSuccess) {
+        ucs_error("Failed to free device memory: %d", syn_status);
+        return UCS_ERR_IO_ERROR;
+    }
+
+    return UCS_OK;
 }
 
 static void uct_gaudi_ipc_cache_purge(uct_gaudi_ipc_cache_t *cache)
@@ -114,7 +108,15 @@ static void uct_gaudi_ipc_cache_purge(uct_gaudi_ipc_cache_t *cache)
 static ucs_status_t
 uct_gaudi_ipc_open_memhandle(uint64_t memh, void **mapped_addr)
 {
-    return hlthunk_ipc_handle_map(memh, mapped_addr);
+    synStatus syn_status;
+
+    syn_status = synDeviceMalloc(memh, 0, 0, 0, (uint64_t*)mapped_addr);
+    if (syn_status != synSuccess) {
+        ucs_error("Failed to allocate device memory: %d", syn_status);
+        return UCS_ERR_NO_MEMORY;
+    }
+
+    return UCS_OK;
 }
 
 static void uct_gaudi_ipc_cache_invalidate_regions(uct_gaudi_ipc_cache_t *cache,
@@ -437,7 +439,7 @@ UCS_PROFILE_FUNC(ucs_status_t, uct_gaudi_ipc_map_memhandle_channel,
 
     /* Check if we can use custom channels for node-local communication */
     if (!md || key->src_device_id >= md->device_count || 
-        md->device_fds[key->src_device_id] < 0) {
+        md->deviceIds[key->src_device_id] < 0) {
         /* Fallback to traditional IPC handle mapping */
         return uct_gaudi_ipc_map_memhandle(key, mapped_addr);
     }

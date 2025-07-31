@@ -8,7 +8,20 @@
 
 #include <uct/base/uct_iface.h>
 #include <uct/base/uct_md.h>
-#include <habanalabs/hlthunk.h>
+
+/* Include Synapse API - hlthunk no longer supported */
+#include <habanalabs/synapse_api.h>
+#include <habanalabs/synapse_api_types.h>
+#include <habanalabs/synapse_common_types.h>
+
+/* Gaudi device types for UCX */
+typedef synDeviceId uct_gaudi_device_handle_t;
+typedef synStreamHandle uct_gaudi_stream_handle_t;
+
+/* Synapse API wrapper functions */
+#define uct_gaudi_open_device(device_idx, bus_id) synDeviceAcquire(&device_idx, NULL)
+#define uct_gaudi_close_device(device_handle) synDeviceRelease(device_handle)
+#define uct_gaudi_get_device_info(device_handle, info) synDeviceGetInfo(device_handle, info)
 
 BEGIN_C_DECLS
 

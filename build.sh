@@ -17,10 +17,10 @@ autoreconf -i
 if [[ $RELEASE_BUILD -eq 1 ]]; then
     echo "Building optimized release version..."
     # Release build configuration with optimizations
-    ./contrib/configure-release --prefix=/opt/ucx --with-mpi --with-gaudi --with-rdmacm --with-verbs "$@"
+    ./contrib/configure-release --prefix=/opt/ucx --with-mpi --with-gaudi=/usr --with-rdmacm --with-verbs "$@"
 else
     echo "Building debug version..."
-    # Configure with Gaudi support, using system habanalabs and drm includes/libs
+    # Configure with Gaudi support, using system synapse library
     ./configure --with-gaudi=/usr --enable-examples --prefix=$PWD/install "$@"
 fi
 

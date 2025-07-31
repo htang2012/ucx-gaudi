@@ -9,9 +9,7 @@
 #include <ucs/type/status.h>
 #include <stdint.h>
 #include <stddef.h>
-
-/* Forward declare hlthunk structures */
-struct hlthunk_hw_ip_info;
+#include <habanalabs/synapse_api.h>
 
 /* DMA direction constants */
 enum uct_gaudi_dma_direction {
@@ -26,23 +24,21 @@ enum uct_gaudi_dma_direction {
 };
 
 /**
- * @brief Execute DMA copy operation using hlthunk command buffers
+ * @brief Execute DMA copy operation using synapse API
  * 
- * @param hlthunk_fd    File descriptor for hlthunk device
+ * @param device_id     Synapse device ID
  * @param dst           Destination address
  * @param src           Source address  
  * @param length        Transfer length
- * @param hw_info       Hardware info for device detection (can be NULL for auto-detect)
  * 
  * @return UCS_OK on success, error status otherwise
  */
-ucs_status_t uct_gaudi_dma_execute_copy(int hlthunk_fd, void *dst, void *src, 
-                                       size_t length, 
-                                       const struct hlthunk_hw_ip_info *hw_info);
+ucs_status_t uct_gaudi_dma_execute_copy(synDeviceId device_id, void *dst, void *src, 
+                                       size_t length);
 
 /**
- * @brief Execute DMA copy with automatic hlthunk device management
- * Opens and closes hlthunk device automatically
+ * @brief Execute DMA copy with automatic device management
+ * Acquires and releases synapse device automatically
  * 
  * @param dst           Destination address
  * @param src           Source address  
@@ -50,6 +46,6 @@ ucs_status_t uct_gaudi_dma_execute_copy(int hlthunk_fd, void *dst, void *src,
  * 
  * @return UCS_OK on success, error status otherwise
  */
-ucs_status_t uct_gaudi_dma_execute_copy_auto(int hlthunk_fd, void *dst, void *src, size_t length);
+ucs_status_t uct_gaudi_dma_execute_copy_auto(void *dst, void *src, size_t length);
 
 #endif /* UCT_GAUDI_DMA_H */

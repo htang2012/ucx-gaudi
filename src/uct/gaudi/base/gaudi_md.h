@@ -11,14 +11,17 @@
 #include <ucs/memory/memory_type.h>
 #include <ucs/datastruct/list.h>
 #include <ucs/type/spinlock.h>
-#include <hlthunk.h>
+
+/* Include Synapse API - hlthunk no longer supported */
+#include <habanalabs/synapse_api.h>
+#include <habanalabs/synapse_api_types.h>
+#include <habanalabs/synapse_common_types.h>
 
 
 #define UCT_MD_MEM_REG_FIELD_GAUDI_FD UCS_BIT(16)
 
  typedef struct uct_gaudi_memh {
-        int gaudi_fd;
-        uint64_t gaudi_handle;
+        synDeviceId device_id;
         uint64_t device_va;
         int dmabuf_fd;
         size_t length;
@@ -29,7 +32,7 @@
 
 typedef struct uct_gaudi_mem_reg_params {
     uct_md_mem_reg_params_t super; // Must be first
-    int gaudi_fd;
+    synDeviceId device_id;
 } uct_gaudi_mem_reg_params_t;
 
 /**
@@ -78,6 +81,6 @@ uct_gaudi_base_query_md_resources(uct_component_t *component,
 ucs_status_t uct_gaudi_md_mem_reg(uct_md_h md, void *address, size_t length,
                                   const uct_md_mem_reg_params_t *params, uct_mem_h *memh_p);
 
-int uct_gaudi_md_open_device(int device_index);
+ucs_status_t uct_gaudi_md_open_device(int device_index, synDeviceId *device_id_p);
 
 #endif /* UCT_GAUDI_MD_H */

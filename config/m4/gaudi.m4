@@ -27,17 +27,18 @@ AS_IF([test "x$gaudi_checked" != "xyes"],
                [
                 AS_IF([test "x$with_gaudi" = "xguess" -o "x$with_gaudi" = "xyes"],
                       [
+                       # Use system habanalabs installation
                        GAUDI_CPPFLAGS="-I/usr/include/habanalabs"
                        GAUDI_CPPFLAGS="$GAUDI_CPPFLAGS -I/usr/include/drm"
                        GAUDI_CPPFLAGS="$GAUDI_CPPFLAGS -I/usr/include/libdrm"
-                       GAUDI_CPPFLAGS="$GAUDI_CPPFLAGS -DHAVE_GAUDI=1 -DHAVE_HLTHUNK_H=1"
+                       GAUDI_CPPFLAGS="$GAUDI_CPPFLAGS -DHAVE_GAUDI=1 -DHAVE_SYNAPSE_API_H=1 -DUSE_SYNAPSE_API=1"
                        GAUDI_LDFLAGS="-L/usr/lib/habanalabs"
                       ],
                       [
                        GAUDI_CPPFLAGS="-I${with_gaudi}/include/habanalabs"
                        GAUDI_CPPFLAGS="$GAUDI_CPPFLAGS -I${with_gaudi}/include/drm"
                        GAUDI_CPPFLAGS="$GAUDI_CPPFLAGS -I${with_gaudi}/include/libdrm"
-                       GAUDI_CPPFLAGS="$GAUDI_CPPFLAGS -DHAVE_GAUDI=1 -DHAVE_HLTHUNK_H=1"
+                       GAUDI_CPPFLAGS="$GAUDI_CPPFLAGS -DHAVE_GAUDI=1 -DHAVE_SYNAPSE_API_H=1 -DUSE_SYNAPSE_API=1"
                        GAUDI_LDFLAGS="-L${with_gaudi}/lib/habanalabs"
                       ])
                ])
@@ -45,24 +46,11 @@ AS_IF([test "x$gaudi_checked" != "xyes"],
          CPPFLAGS="$CPPFLAGS $GAUDI_CPPFLAGS"
          LDFLAGS="$LDFLAGS $GAUDI_LDFLAGS"
 
-         # Check gaudi header files
-         AC_CHECK_HEADERS([habanalabs/hlthunk.h],
+         # Check gaudi header files - require synapse API only
+         AC_CHECK_HEADERS([habanalabs/synapse_api.h],
                           [gaudi_happy="yes"], [gaudi_happy="no"])
          
-         # Check for HLML header file
-         AS_IF([test "x$gaudi_happy" = "xyes"],
-               [AC_CHECK_HEADERS([habanalabs/hlml.h],
-                                [gaudi_happy="yes"], [gaudi_happy="no"])])
-
-         # Check gaudi libraries
-         AS_IF([test "x$gaudi_happy" = "xyes"],
-               [AC_CHECK_LIB([hl-thunk], [hlthunk_get_version],
-                             [GAUDI_LIBS="$GAUDI_LIBS -lhl-thunk"], [gaudi_happy="no"])])
          
-         # Check for HLML library
-         AS_IF([test "x$gaudi_happy" = "xyes"],
-               [AC_CHECK_LIB([hlml], [hlml_init],
-                             [GAUDI_LIBS="$GAUDI_LIBS -lhlml"], [gaudi_happy="no"])])
 
          CPPFLAGS="$save_CPPFLAGS"
          LDFLAGS="$save_LDFLAGS"

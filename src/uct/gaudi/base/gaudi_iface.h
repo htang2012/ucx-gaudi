@@ -12,7 +12,8 @@
 #include <ucs/async/eventfd.h>
 #include <ucs/datastruct/khash.h>
 
-#include <hlthunk.h>
+/* #include <hlthunk.h> - replaced with Synapse API */
+#include <habanalabs/synapse_api.h>
 
 
 #define UCT_GAUDI_FUNC(_func, _log_level) \

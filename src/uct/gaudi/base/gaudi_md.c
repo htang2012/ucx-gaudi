@@ -14,66 +14,11 @@
 #include <ucs/sys/module.h>
 #include <ucs/sys/string.h>
 #include <ucs/sys/topo/base/topo.h>
-#include <hlthunk.h>
+#include <synapse_api.h>
 #include <errno.h>
 
 
 
-
-void uct_gaudi_base_get_sys_dev(int gaudi_dev,
-                               ucs_sys_device_t *sys_dev_p)
-{
-    ucs_sys_bus_id_t bus_id_info;
-    ucs_status_t status;
-    char bus_id_buffer[64];
-    
-    /* Get bus ID from cache */
-    bus_id_info = uct_gaudi_get_busid_from_cache(gaudi_dev, bus_id_buffer);
-    if (bus_id_info.domain == -1) {
-        ucs_debug("System device detection failed for Gaudi device %d, will use unknown", gaudi_dev);
-        *sys_dev_p = UCS_SYS_DEVICE_ID_UNKNOWN;
-        return;
-    }
-
-    /* Find the system device by PCI bus ID */
-    status = ucs_topo_find_device_by_bus_id(&bus_id_info, sys_dev_p);
-    if (status != UCS_OK) {
-        ucs_debug("Failed to find system device by PCI bus ID for Gaudi device %d: %s", 
-                  gaudi_dev, ucs_status_string(status));
-        *sys_dev_p = UCS_SYS_DEVICE_ID_UNKNOWN;
-        return;
-    }
-
-    /* Associate the system device with the Gaudi device index */
-    status = ucs_topo_sys_device_set_user_value(*sys_dev_p, gaudi_dev);
-    if (status != UCS_OK) {
-        ucs_debug("Failed to set user value for system device for Gaudi device %d: %s", 
-                  gaudi_dev, ucs_status_string(status));
-        *sys_dev_p = UCS_SYS_DEVICE_ID_UNKNOWN;
-        return;
-    }
-
-    ucs_debug("Successfully mapped Gaudi device %d to system device (domain=%d, bus=%d, slot=%d, func=%d)", 
-              gaudi_dev, bus_id_info.domain, bus_id_info.bus, bus_id_info.slot, bus_id_info.function);
-}
-
-ucs_status_t
-uct_gaudi_base_get_gaudi_device(ucs_sys_device_t sys_dev, int *dev_ptr)
-{
-    uintptr_t user_value;
-
-    user_value = ucs_topo_sys_device_get_user_value(sys_dev);
-    if (user_value == UINTPTR_MAX) {
-        return UCS_ERR_NO_DEVICE;
-    }
-
-    *dev_ptr = user_value;
-    if (*dev_ptr == -1) {
-        return UCS_ERR_NO_DEVICE;
-    }
-
-    return UCS_OK;
-}
 
 ucs_status_t
 uct_gaudi_base_query_md_resources(uct_component_t *component,
@@ -85,44 +30,123 @@ uct_gaudi_base_query_md_resources(uct_component_t *component,
     ucs_sys_device_t sys_dev;
     ucs_status_t status;
     char device_name[10];
-    int i, num_gpus;
+    int i;
+    uint32_t num_gpus;
+    synStatus status_syn;
 
-    /* Get Gaudi device count from environment */
-    num_gpus = uct_gaudi_detect_devices();
+    status_syn = synInitialize();
+    if (status_syn != synSuccess) {
+        ucs_error("Failed to initialize Synapse: %d", status_syn);
+        return uct_md_query_empty_md_resource(resources_p, num_resources_p);
+    }
+
+    status_syn = synDeviceGetCount(&num_gpus);
+    if (status_syn != synSuccess) {
+        ucs_error("Failed to get Gaudi device count from Synapse: %d", status_syn);
+        return uct_md_query_empty_md_resource(resources_p, num_resources_p);
+    }
+
     if (num_gpus <= 0) {
         return uct_md_query_empty_md_resource(resources_p, num_resources_p);
     }
-    /* Detect and initialize Gaudi devices */
-    ucs_debug("Detected %d Gaudi devices via HLML", num_gpus);
+
+
 
     for (i = 0; i < num_gpus; ++i) {
         uct_gaudi_base_get_sys_dev(i, &sys_dev);
         if (sys_dev != UCS_SYS_DEVICE_ID_UNKNOWN) {
-            ucs_snprintf_safe(device_name, sizeof(device_name), "GAUDI%d", i);
-            status = ucs_topo_sys_device_set_name(sys_dev, device_name,
-                                                  sys_device_priority);
+            ucs_snprintf_safe(device_name, sizeof(device_name), "GAUDI_%d", i);
+            status = ucs_topo_sys_device_set_name(sys_dev, device_name, sys_device_priority);
             ucs_assert_always(status == UCS_OK);
         } else {
-            ucs_debug("System device detection failed for Gaudi device %d, "
-                      "transport will still be available but device name will be unknown", i);
+            ucs_debug("Gaudi device %d is not mapped to a system device", i);
         }
     }
 
-    ucs_debug("Successfully detected Gaudi devices");
-    resources = calloc(num_gpus, sizeof(*resources));
-    if (resources == NULL) {
-        ucs_error("Failed to allocate memory for Gaudi MD resources");
+    ucs_debug("Found %u Gaudi devices", num_gpus);
+
+    resources = ucs_calloc(num_gpus, sizeof(uct_md_resource_desc_t),
+                           "gaudi md resources");
+    if (NULL == resources) {
+        ucs_error("Failed to allocate Gaudi MD resources");
         return UCS_ERR_NO_MEMORY;
     }
 
     for (i = 0; i < num_gpus; ++i) {
         ucs_snprintf_safe(resources[i].md_name, sizeof(resources[i].md_name),
-                          "gaudi:%d", i);
+                          "gaudi_%d", i);
     }
-    *num_resources_p = num_gpus;
     *resources_p = resources;
-    return UCS_OK;
+    *num_resources_p = num_gpus;
 
+    return UCS_OK;
+}
+
+ucs_status_t  ucs_topo_bus_id_from_str(const char *str, ucs_sys_bus_id_t *bus_id_p)
+{
+    if (str == NULL || bus_id_p == NULL) {
+        ucs_error("Invalid input: str=%p, bus_id_p=%p", str, bus_id_p);
+        return UCS_ERR_INVALID_PARAM;
+    }
+    ucs_info("Parsing bus ID from string: %s", str);
+    sscanf(str, "%02hhx:%02hhx.%hhd", &bus_id_p->bus, &bus_id_p->slot, &bus_id_p->function);
+
+    bus_id_p->domain = 0; // Default domain for simplicity
+    return UCS_OK;
+}
+
+
+
+void uct_gaudi_base_get_sys_dev(int gaudi_dev,
+                               ucs_sys_device_t *sys_dev_p)
+{
+    synStatus status_syn;
+    char bus_id_buffer[64];
+    ucs_status_t status;
+    ucs_sys_bus_id_t bus_id; /* Move declaration before any code for C90 compliance */
+
+    status_syn = synDeviceGetPCIBusId(bus_id_buffer, sizeof(bus_id_buffer), gaudi_dev);
+    if (status_syn != synSuccess) {
+        ucs_debug("Failed to get PCI bus ID for Gaudi device %d: %d", gaudi_dev, status_syn);
+        *sys_dev_p = UCS_SYS_DEVICE_ID_UNKNOWN;
+        return;
+    }
+
+    status = ucs_topo_bus_id_from_str(bus_id_buffer, &bus_id);
+    if (status != UCS_OK) {
+        ucs_debug("Failed to parse PCI bus ID string for Gaudi device %d: %s",
+                  gaudi_dev, ucs_status_string(status));
+        *sys_dev_p = UCS_SYS_DEVICE_ID_UNKNOWN;
+        return;
+    }
+
+    status = ucs_topo_find_device_by_bus_id(&bus_id, sys_dev_p);
+    if (status != UCS_OK) {
+        ucs_debug("Failed to find system device by PCI bus ID for Gaudi device %d: %s",
+                  gaudi_dev, ucs_status_string(status));
+        *sys_dev_p = UCS_SYS_DEVICE_ID_UNKNOWN;
+        return;
+    }
+
+    status = ucs_topo_sys_device_set_user_value(*sys_dev_p, gaudi_dev);
+    if (status != UCS_OK) {
+        ucs_debug("Failed to set user value for system device for Gaudi device %d: %s",
+                  gaudi_dev, ucs_status_string(status));
+        *sys_dev_p = UCS_SYS_DEVICE_ID_UNKNOWN;
+        return;
+    }
+
+    ucs_debug("Successfully mapped Gaudi device %d to system device", gaudi_dev);
+}
+
+
+UCS_STATIC_INIT
+{
+    synInitialize();
+}
+
+UCS_STATIC_CLEANUP
+{
 }
 
 UCS_MODULE_INIT() {

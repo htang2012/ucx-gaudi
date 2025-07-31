@@ -33,8 +33,9 @@
 #include <ucm/api/ucm.h>
 
 /* Habana Labs driver */
-#include <hlthunk.h>
-#include <drm/habanalabs_accel.h>
+#include <habanalabs/synapse_api.h>
+#include <habanalabs/synapse_api_types.h>
+#include <habanalabs/synapse_common_types.h>
 
 
 #define HLTHUNK_BUS_ID_MAX_LEN 32
@@ -157,15 +158,15 @@ const char* uct_gaudi_error_string(int error_code)
 }
 
 /**
- * @brief Translate hlthunk error codes to UCX status codes
+ * @brief Translate Synapse API error codes to UCX status codes
  */
-ucs_status_t uct_gaudi_translate_error(int hlthunk_error)
+ucs_status_t uct_gaudi_translate_error(int synapse_error)
 {
-    if (hlthunk_error == 0) {
+    if (synapse_error == 0) {
         return UCS_OK;
     }
 
-    switch (hlthunk_error) {
+    switch (synapse_error) {
         case -ENODEV:
         case -ENOENT:
             return UCS_ERR_NO_DEVICE;
@@ -321,10 +322,8 @@ ucs_status_t uct_gaudi_copy_mem_alloc(uct_md_h md, size_t *length_p,
 {
     uct_gaudi_copy_md_t *gaudi_md = ucs_derived_of(md, uct_gaudi_copy_md_t);
     uct_gaudi_mem_t *gaudi_memh;
-    uint64_t handle;
+    synStatus syn_status;
     uint64_t addr;
-    int target_device_fd;
-    int target_device_id;
 
     if (mem_type != UCS_MEMORY_TYPE_GAUDI) {
         ucs_error("Invalid memory type %d for Gaudi copy MD", mem_type);
@@ -332,45 +331,20 @@ ucs_status_t uct_gaudi_copy_mem_alloc(uct_md_h md, size_t *length_p,
     }
 
     /* Validate MD structure first */
-    if (!gaudi_md || gaudi_md->hlthunk_fd < 0) {
-        ucs_error("Invalid Gaudi MD or device not opened: md=%p, fd=%d",
-                  gaudi_md, gaudi_md ? gaudi_md->hlthunk_fd : -1);
+    if (!gaudi_md || gaudi_md->deviceId == SYN_INVALID_DEVICE_ID) {
+        ucs_error("Invalid Gaudi MD or device not opened: md=%p, deviceId=%d",
+                  gaudi_md, gaudi_md ? gaudi_md->deviceId : -1);
         return UCS_ERR_NO_DEVICE;
     }
 
-    /* Determine target device from sys_dev parameter */
-    if (sys_dev != UCS_SYS_DEVICE_ID_UNKNOWN) {
-        ucs_status_t status = uct_gaudi_base_get_gaudi_device(sys_dev, &target_device_id);
-        if (status != UCS_OK) {
-            ucs_debug("Failed to get Gaudi device from sys_dev %d, using default device", sys_dev);
-            target_device_id = gaudi_md->device_index;
-        }
-    } else {
-        target_device_id = gaudi_md->device_index;
-    }
-
-    /* For now, if target device differs from MD device, use MD device with warning */
-    if (target_device_id != gaudi_md->device_index) {
-        ucs_debug("Requested device %d differs from MD device %d, using MD device (limited support)",
-                  target_device_id, gaudi_md->device_index);
-    }
-    target_device_fd = gaudi_md->hlthunk_fd;
-
-    /* Check if device is active - if not, this MD cannot allocate device memory */
-    if (gaudi_md->hlthunk_fd < 0) {
-        ucs_debug("Gaudi MD device not active, cannot allocate device memory");
-        return UCS_ERR_UNSUPPORTED;
-    }
-
     ucs_info("uct_gaudi_copy_mem_alloc called: length=%zu, mem_type=%d, sys_dev=%d, flags=0x%x, target_device=%d",
-              *length_p, mem_type, sys_dev, flags, target_device_id);
+              *length_p, mem_type, sys_dev, flags, gaudi_md->deviceId);
     ucs_info("FLAG CHECK: flags=0x%x, UCT_MD_MEM_FLAG_FIXED=0x%x, has_fixed=%d",
               flags, UCT_MD_MEM_FLAG_FIXED, !!(flags & UCT_MD_MEM_FLAG_FIXED));
 
-    /* Allocate device memory through hl-thunk */
-    handle = hlthunk_device_memory_alloc(target_device_fd, *length_p,
-                                      0, true, true);
-    if (handle == 0) {
+    /* Allocate device memory through synapse */
+    syn_status = synDeviceMalloc(gaudi_md->deviceId, *length_p, 0, 0, &addr);
+    if (syn_status != synSuccess) {
         ucs_debug("Failed to allocate device memory size %zu", *length_p);
 #ifdef ENABLE_STATS
         UCS_STATS_UPDATE_COUNTER(gaudi_md->stats, UCT_GAUDI_COPY_STAT_DMA_ERRORS, 1);
@@ -378,31 +352,18 @@ ucs_status_t uct_gaudi_copy_mem_alloc(uct_md_h md, size_t *length_p,
         return UCS_ERR_NO_MEMORY;
     }
 
-    ucs_debug("Successfully allocated device memory handle 0x%lx", handle);
-
-    /* Map to host address space */
-    addr = hlthunk_device_memory_map(gaudi_md->hlthunk_fd, handle, 0);
-    if (addr == 0) {
-        hlthunk_device_memory_free(gaudi_md->hlthunk_fd, handle);
-        ucs_error("Failed to map device memory handle 0x%lx", handle);
-#ifdef ENABLE_STATS
-        UCS_STATS_UPDATE_COUNTER(gaudi_md->stats, UCT_GAUDI_COPY_STAT_DMA_ERRORS, 1);
-#endif
-        return UCS_ERR_NO_MEMORY;
-    }
-
-    ucs_debug("Successfully mapped device memory to host address 0x%lx", addr);
+    ucs_debug("Successfully allocated device memory address 0x%lx", addr);
 
     gaudi_memh = ucs_calloc(1, sizeof(*gaudi_memh), "gaudi_memh");
     if (gaudi_memh == NULL) {
-        hlthunk_device_memory_free(gaudi_md->hlthunk_fd, handle);
+        synDeviceFree(gaudi_md->deviceId, addr, 0);
         ucs_error("Failed to allocate Gaudi memory handle on host");
         return UCS_ERR_NO_MEMORY;
     }
 
     gaudi_memh->vaddr = (void *)addr;
     gaudi_memh->size = *length_p;
-    gaudi_memh->handle = handle;
+    gaudi_memh->handle = 0;
     gaudi_memh->dev_addr = addr;
     gaudi_memh->dmabuf_fd = -1;
     gaudi_memh->dmabuf_offset = 0;
@@ -422,28 +383,10 @@ ucs_status_t uct_gaudi_copy_mem_alloc(uct_md_h md, size_t *length_p,
         int dmabuf_fd = -1;
         ucs_warn("DMABUF EXPORT: Entering DMA-BUF export path with flags=0x%x", flags);
 
-        /* Try enhanced DMA-BUF API first (Gaudi2+) */
-        ucs_debug("DMA-BUF CONFIG: mapped_dmabuf_supported=%d", gaudi_md->config.mapped_dmabuf_supported);
-        if (gaudi_md->config.mapped_dmabuf_supported) {
-            ucs_warn("Exporting memory as enhanced DMA-BUF fd for IB sharing");
-            dmabuf_fd = hlthunk_device_mapped_memory_export_dmabuf_fd(
-                gaudi_md->hlthunk_fd, (uint64_t)addr, *length_p, 0, 0);
-            ucs_debug("Enhanced DMA-BUF API result: fd=%d", dmabuf_fd);
-            if (dmabuf_fd >= 0) {
-                gaudi_memh->dmabuf_offset = 0;
-                ucs_debug("Exported as enhanced DMA-BUF fd %d with offset support", dmabuf_fd);
-            }
-        }
-
-        /* Fallback to legacy DMA-BUF API */
-        if (dmabuf_fd < 0) {
-            ucs_warn("Trying legacy DMA-BUF API as fallback");
-            dmabuf_fd = hlthunk_device_memory_export_dmabuf_fd(gaudi_md->hlthunk_fd,
-                                                             (uint64_t)addr, *length_p, 0);
-            ucs_debug("Legacy DMA-BUF API result: fd=%d", dmabuf_fd);
-        }
-
-        if (dmabuf_fd >= 0) {
+        /* Note: synDeviceExportDmaBuf may not be available in all Synapse API versions */
+        /* syn_status = synDeviceExportDmaBuf(gaudi_md->deviceId, (void*)addr, *length_p, &dmabuf_fd); */
+        syn_status = synFail; /* Temporarily disable DMA-BUF export */
+        if (syn_status == synSuccess) {
             gaudi_memh->dmabuf_fd = dmabuf_fd;
 #ifdef ENABLE_STATS
             UCS_STATS_UPDATE_COUNTER(gaudi_md->stats, UCT_GAUDI_COPY_STAT_DMABUF_EXPORTS, 1);
@@ -486,8 +429,8 @@ ucs_status_t uct_gaudi_copy_mem_free(uct_md_h md, uct_mem_h memh)
                   gaudi_memh->dmabuf_fd);
     }
 
-    if (gaudi_md->hlthunk_fd >= 0 && gaudi_memh->handle != 0) {
-        hlthunk_device_memory_free(gaudi_md->hlthunk_fd, gaudi_memh->handle);
+    if (gaudi_md->deviceId != SYN_INVALID_DEVICE_ID) {
+        synDeviceFree(gaudi_md->deviceId, (uint64_t)gaudi_memh->vaddr, 0);
     }
 
     ucs_free(gaudi_memh);
@@ -499,22 +442,18 @@ uct_gaudi_copy_md_query_attributes(const uct_gaudi_copy_md_t *md,
                                   const void *address, size_t length,
                                   ucs_memory_info_t *mem_info)
 {
-    struct hl_info_args args = {0};
-    struct hl_info_hw_ip_info hw_ip;
+    synDeviceInfoV2 dev_info;
+    synStatus syn_status;
 
-    args.op = HL_INFO_HW_IP_INFO;
-    args.return_pointer = (uintptr_t)&hw_ip;
-    args.return_size = sizeof(hw_ip);
-
-    /* Use the device index from the MD instead of hard-coding 0 */
-    if (hlthunk_get_info(md->hlthunk_fd, &args)) {
+    syn_status = synDeviceGetInfoV2(md->deviceId, &dev_info);
+    if (syn_status != synSuccess) {
         return UCS_ERR_INVALID_ADDR;
     }
 
     mem_info->type         = UCS_MEMORY_TYPE_GAUDI;
-    mem_info->sys_dev      = md->device_index;
-    mem_info->base_address = (void*)hw_ip.dram_base_address;
-    mem_info->alloc_length = hw_ip.dram_size;
+    mem_info->sys_dev      = dev_info.deviceId;
+    mem_info->base_address = (void*)dev_info.dramBaseAddress;
+    mem_info->alloc_length = dev_info.dramSize;
 
     return UCS_OK;
 }
@@ -654,7 +593,7 @@ static void uct_gaudi_rcache_mem_dereg_cb(void *context, ucs_rcache_t *rcache,
     uct_gaudi_copy_rcache_region_t *region = ucs_derived_of(rregion, uct_gaudi_copy_rcache_region_t);
 
     /* Check if MD is still valid before attempting cleanup */
-    if (md != NULL && md->hlthunk_fd >= 0) {
+    if (md != NULL && md->deviceId != (synDeviceId)-1) {
         uct_gaudi_copy_mem_dereg_internal(&md->super, &region->memh);
     }
 }
@@ -726,8 +665,9 @@ ucs_status_t uct_gaudi_copy_mem_dereg(uct_md_h md,
 ucs_status_t uct_gaudi_copy_export_dmabuf(uct_md_h md, void *address, size_t length,
                                          int *dmabuf_fd, uint64_t *dmabuf_offset)
 {
-    uct_gaudi_copy_md_t *gaudi_md = ucs_derived_of(md, uct_gaudi_copy_md_t);
-    int fd = -1;
+    /* uct_gaudi_copy_md_t *gaudi_md = ucs_derived_of(md, uct_gaudi_copy_md_t); */
+    synStatus syn_status;
+    (void)md; /* Mark parameter as unused */
 
     if (!address || !length || !dmabuf_fd) {
         return UCS_ERR_INVALID_PARAM;
@@ -736,43 +676,25 @@ ucs_status_t uct_gaudi_copy_export_dmabuf(uct_md_h md, void *address, size_t len
     *dmabuf_fd = -1;
     *dmabuf_offset = 0;
 
-    /* Try enhanced DMA-BUF API first (Gaudi2+) */
-    if (gaudi_md->config.mapped_dmabuf_supported) {
-        ucs_warn("Exporting memory as enhanced DMA-BUF fd for device-to-device IPC");
-        fd = hlthunk_device_mapped_memory_export_dmabuf_fd(
-            gaudi_md->hlthunk_fd, (uint64_t)address, length, 0, 0);
-        if (fd >= 0) {
-            *dmabuf_fd = fd;
-            *dmabuf_offset = 0;
+    /* Note: synDeviceExportDmaBuf may not be available in all Synapse API versions */
+    /* syn_status = synDeviceExportDmaBuf(gaudi_md->deviceId, address, length, dmabuf_fd); */
+    syn_status = synFail; /* Temporarily disable DMA-BUF export */
+    if (syn_status != synSuccess) {
+        ucs_error("Failed to export DMA-BUF for addr=%p size=%zu: %d (function disabled)",
+                 address, length, syn_status);
 #ifdef ENABLE_STATS
-            UCS_STATS_UPDATE_COUNTER(gaudi_md->stats, UCT_GAUDI_COPY_STAT_DMABUF_EXPORTS, 1);
+        UCS_STATS_UPDATE_COUNTER(gaudi_md->stats, UCT_GAUDI_COPY_STAT_DMA_ERRORS, 1);
 #endif
-            ucs_debug("Exported enhanced DMA-BUF fd=%d for addr=%p size=%zu",
-                     fd, address, length);
-            return UCS_OK;
-        }
+        return UCS_ERR_IO_ERROR;
     }
 
-    /* Fallback to legacy DMA-BUF API */
-    fd = hlthunk_device_memory_export_dmabuf_fd(gaudi_md->hlthunk_fd,
-                                              (uint64_t)address, length, 0);
-    if (fd >= 0) {
-        *dmabuf_fd = fd;
-        *dmabuf_offset = 0;
 #ifdef ENABLE_STATS
-        UCS_STATS_UPDATE_COUNTER(gaudi_md->stats, UCT_GAUDI_COPY_STAT_DMABUF_EXPORTS, 1);
+    UCS_STATS_UPDATE_COUNTER(gaudi_md->stats, UCT_GAUDI_COPY_STAT_DMABUF_EXPORTS, 1);
 #endif
-        ucs_debug("Exported legacy DMA-BUF fd=%d for addr=%p size=%zu",
-                 fd, address, length);
-        return UCS_OK;
-    }
+    ucs_debug("Exported DMA-BUF fd=%d for addr=%p size=%zu",
+             *dmabuf_fd, address, length);
 
-    ucs_error("Failed to export DMA-BUF for addr=%p size=%zu: %s",
-             address, length, strerror(errno));
-#ifdef ENABLE_STATS
-    UCS_STATS_UPDATE_COUNTER(gaudi_md->stats, UCT_GAUDI_COPY_STAT_DMA_ERRORS, 1);
-#endif
-    return UCS_ERR_IO_ERROR;
+    return UCS_OK;
 }
 
 /**
@@ -784,9 +706,9 @@ ucs_status_t uct_gaudi_copy_export_dmabuf(uct_md_h md, void *address, size_t len
 ucs_status_t uct_gaudi_copy_import_dmabuf(uct_md_h md, int dmabuf_fd, size_t length,
                                          uint64_t offset, uint64_t *device_va)
 {
-    uct_gaudi_copy_md_t *gaudi_md = ucs_derived_of(md, uct_gaudi_copy_md_t);
-    union hl_mem_args ioctl_args;
-    int rc;
+    /* uct_gaudi_copy_md_t *gaudi_md = ucs_derived_of(md, uct_gaudi_copy_md_t); */
+    synStatus syn_status;
+    (void)md; /* Mark parameter as unused */
 
     if (dmabuf_fd < 0 || !length || !device_va) {
         return UCS_ERR_INVALID_PARAM;
@@ -794,23 +716,17 @@ ucs_status_t uct_gaudi_copy_import_dmabuf(uct_md_h md, int dmabuf_fd, size_t len
 
     *device_va = 0;
 
-    /* Register DMA-BUF with the device */
-    memset(&ioctl_args, 0, sizeof(ioctl_args));
-    ioctl_args.in.reg_dmabuf_fd.fd = dmabuf_fd;
-    ioctl_args.in.reg_dmabuf_fd.length = length;
-    ioctl_args.in.op = HL_MEM_OP_REG_DMABUF_FD;
-
-    rc = ioctl(gaudi_md->hlthunk_fd, DRM_IOCTL_HL_MEMORY, &ioctl_args);
-    if (rc) {
-        ucs_error("Failed to register DMA-BUF fd=%d length=%zu: %s",
-                 dmabuf_fd, length, strerror(errno));
+    /* Note: synDeviceImportDmaBuf may not be available in all Synapse API versions */
+    /* syn_status = synDeviceImportDmaBuf(gaudi_md->deviceId, dmabuf_fd, length, offset, device_va); */
+    syn_status = synFail; /* Temporarily disable DMA-BUF import */
+    if (syn_status != synSuccess) {
+        ucs_error("Failed to import DMA-BUF fd=%d length=%zu: %d (function disabled)",
+                 dmabuf_fd, length, syn_status);
 #ifdef ENABLE_STATS
         UCS_STATS_UPDATE_COUNTER(gaudi_md->stats, UCT_GAUDI_COPY_STAT_DMA_ERRORS, 1);
 #endif
-        return uct_gaudi_translate_error(rc);
+        return UCS_ERR_IO_ERROR;
     }
-
-    *device_va = ioctl_args.out.device_virt_addr;
 
     ucs_debug("Imported DMA-BUF fd=%d length=%zu -> device_va=0x%lx",
              dmabuf_fd, length, *device_va);
@@ -827,26 +743,20 @@ ucs_status_t uct_gaudi_copy_import_dmabuf(uct_md_h md, int dmabuf_fd, size_t len
 ucs_status_t uct_gaudi_copy_unmap_dmabuf(uct_md_h md, uint64_t device_va)
 {
     uct_gaudi_copy_md_t *gaudi_md = ucs_derived_of(md, uct_gaudi_copy_md_t);
-    union hl_mem_args ioctl_args;
-    int rc;
+    synStatus syn_status;
 
     if (!device_va) {
         return UCS_ERR_INVALID_PARAM;
     }
 
-    /* Unmap the device virtual address */
-    memset(&ioctl_args, 0, sizeof(ioctl_args));
-    ioctl_args.in.unmap.device_virt_addr = device_va;
-    ioctl_args.in.op = HL_MEM_OP_UNMAP;
-
-    rc = ioctl(gaudi_md->hlthunk_fd, DRM_IOCTL_HL_MEMORY, &ioctl_args);
-    if (rc) {
-        ucs_warn("Failed to unmap DMA-BUF device_va=0x%lx: %s",
-                device_va, strerror(errno));
+    syn_status = synHostUnmap(gaudi_md->deviceId, (void*)device_va);
+    if (syn_status != synSuccess) {
+        ucs_warn("Failed to unmap DMA-BUF device_va=0x%lx: %d",
+                device_va, syn_status);
 #ifdef ENABLE_STATS
         UCS_STATS_UPDATE_COUNTER(gaudi_md->stats, UCT_GAUDI_COPY_STAT_DMA_ERRORS, 1);
 #endif
-        return uct_gaudi_translate_error(rc);
+        return UCS_ERR_IO_ERROR;
     }
 
     ucs_debug("Unmapped DMA-BUF device_va=0x%lx", device_va);
@@ -871,8 +781,8 @@ static void uct_gaudi_copy_md_close(uct_md_h uct_md) {
         if (gaudi_memh->dmabuf_fd >= 0) {
             close(gaudi_memh->dmabuf_fd);
         }
-        if (gaudi_memh->handle != 0 && md->hlthunk_fd >= 0) {
-            hlthunk_device_memory_free(md->hlthunk_fd, gaudi_memh->handle);
+        if (gaudi_memh->handle != 0 && md->deviceId != (synDeviceId)-1) {
+            synDeviceFree(md->deviceId, gaudi_memh->handle, 0);
         }
         ucs_free(gaudi_memh);
     }
@@ -884,11 +794,8 @@ static void uct_gaudi_copy_md_close(uct_md_h uct_md) {
     UCS_STATS_NODE_FREE(md->stats);
 #endif
 
-    if (md->hlthunk_fd >= 0) {
-        ucs_warn("Closing Gaudi MD hl-thunk file descriptor %d", md->hlthunk_fd);
-        uct_gaudi_device_put(md->hlthunk_fd);
-    }
-
+    uct_gaudi_device_put(md->deviceId);
+   
     ucs_free(md);
 }
 
@@ -902,14 +809,14 @@ UCS_PROFILE_FUNC(ucs_status_t, uct_gaudi_copy_mem_reg_internal,
     uct_gaudi_mem_t *gaudi_memh;
 
     /* Check if device is active - if not, this MD cannot handle memory operations */
-    if (gaudi_md->hlthunk_fd < 0) {
+    if (gaudi_md->deviceId == SYN_INVALID_DEVICE_ID) {
         ucs_debug("Gaudi MD device not active, cannot register memory");
         return UCS_ERR_UNSUPPORTED;
     }
 
     /* Check if this is already Gaudi device memory */
-    if ((uintptr_t)address >= gaudi_md->hw_info.dram_base_address &&
-        (uintptr_t)address < (gaudi_md->hw_info.dram_base_address + gaudi_md->hw_info.dram_size)) {
+    if ((uintptr_t)address >= gaudi_md->hw_info.dramBaseAddress &&
+        (uintptr_t)address < (gaudi_md->hw_info.dramBaseAddress + gaudi_md->hw_info.dramSize)) {
         /* Already device memory, just create a dummy handle */
         *memh_p = &uct_gaudi_dummy_memh;
         return UCS_OK;
@@ -935,11 +842,14 @@ UCS_PROFILE_FUNC(ucs_status_t, uct_gaudi_copy_mem_reg_internal,
 
     /* Export as DMA-BUF if requested and supported */
     if ((flags & UCT_MD_MEM_FLAG_FIXED) && gaudi_md->config.dmabuf_supported) {
-        int dmabuf_fd;
+        int dmabuf_fd = -1; /* Initialize to invalid FD */
+        synStatus syn_status;
+
         /* Export host memory mapped to Gaudi as DMA-BUF for IB sharing */
-        dmabuf_fd = hlthunk_device_mapped_memory_export_dmabuf_fd(gaudi_md->hlthunk_fd,
-                                                                 (uint64_t)address, length, 0, 0);
-        if (dmabuf_fd >= 0) {
+        /* Note: synDeviceExportDmaBuf may not be available in all Synapse API versions */
+        /* syn_status = synDeviceExportDmaBuf(gaudi_md->deviceId, address, length, &dmabuf_fd); */
+        syn_status = synFail; /* Temporarily disable DMA-BUF export */
+        if (syn_status == synSuccess) {
             gaudi_memh->dmabuf_fd = dmabuf_fd;
             ucs_debug("Exported registered memory %p as DMA-BUF fd %d for IB sharing",
                       address, dmabuf_fd);
@@ -973,8 +883,8 @@ uct_gaudi_copy_mem_dereg_internal(uct_md_h md, uct_gaudi_mem_t *gaudi_memh)
 
     /* Free any device memory handle if it was allocated */
     if (gaudi_memh->handle != 0) {
-        if (gaudi_md->hlthunk_fd >= 0) {
-            hlthunk_device_memory_free(gaudi_md->hlthunk_fd, gaudi_memh->handle);
+        if (gaudi_md->deviceId != (synDeviceId)-1) {
+            synDeviceFree(gaudi_md->deviceId, gaudi_memh->handle, 0);
         }
     }
 
@@ -1028,17 +938,17 @@ uct_gaudi_copy_md_open(uct_component_t *component, const char *md_name,
 {
     uct_gaudi_copy_md_t *md;
     uct_gaudi_copy_md_config_t *config;
-    int device_index = 0; /* Default to first device */
-    char bus_id_str[64];
+    int module_index = 0; /* Default to first device by module id */
     ucs_status_t status;
+    synStatus syn_status;
 
     config = ucs_derived_of(md_config, uct_gaudi_copy_md_config_t);
 
-    /* Parse device index from md_name, e.g. "gaudi:0" */
+    /* Parse device index from md_name, e.g. "gaudi_0" */
     if (md_name != NULL) {
-        const char *colon = strchr(md_name, ':');
-        if (colon != NULL) {
-            device_index = atoi(colon + 1);
+        const char *underscore = strchr(md_name, '_');
+        if (underscore != NULL) {
+            module_index = atoi(underscore + 1);
         }
     }
 
@@ -1051,8 +961,8 @@ uct_gaudi_copy_md_open(uct_component_t *component, const char *md_name,
     md->super.ops       = &md_ops;
     md->super.component = &uct_gaudi_copy_component;
 
-    /* Initialize device index */
-    md->device_index = device_index;
+    /* Note: module_index stored in moduleId field as Synapse module ID */
+    md->moduleId = module_index;
 
     /* Initialize memory handle tracking */
     ucs_list_head_init(&md->memh_list);
@@ -1068,57 +978,54 @@ uct_gaudi_copy_md_open(uct_component_t *component, const char *md_name,
     md->reg_cost = ucs_linear_func_make(config->reg_cost, 0);
 
     /* TOLERANT INITIALIZATION: Try to open device, but allow MD creation even if it fails */
-    uct_gaudi_get_busid_from_cache(device_index, bus_id_str);
-    status = uct_gaudi_device_open(device_index, bus_id_str, &md->hlthunk_fd);
+    syn_status = synDeviceAcquireByModuleId(&md->deviceId, module_index);
 
-    if (status != UCS_OK) {
-        ucs_debug("Failed to open Gaudi device %d (bus_id=%s), MD will be created but marked as unavailable",
-                  device_index, bus_id_str);
+    if (syn_status != synSuccess) {
+        ucs_debug("Failed to open Gaudi device with module Id %d, MD will be created but marked as unavailable",
+                  module_index);
         /* Continue with MD creation - device will be marked as inactive */
     }
 
-    if (md->hlthunk_fd >= 0) {
-        ucs_warn("Opened Gaudi device %d with bus ID %s, with fd=%d", device_index, bus_id_str, md->hlthunk_fd);
+    if (md->deviceId != SYN_INVALID_DEVICE_ID) {
+        ucs_warn("Opened Gaudi device with module Id %d and device ID %d", module_index, md->deviceId);
     }
 
     /* Get hardware information only if device is successfully opened */
     memset(&md->hw_info, 0, sizeof(md->hw_info));  /* Initialize hw_info to zeros */
-    if (md->hlthunk_fd >= 0) {
-        if (hlthunk_get_hw_ip_info(md->hlthunk_fd, &md->hw_info) != 0) {
-            ucs_warn("Failed to get hardware info from hlthunk for device %d", device_index);
+    if (md->deviceId != SYN_INVALID_DEVICE_ID) {
+        synDeviceInfoV2 dev_info;
+        syn_status = synDeviceGetInfoV2(md->deviceId, &dev_info);
+        if (syn_status != synSuccess) {
+            ucs_warn("Failed to get hardware info from synapse for device %d", md->deviceId);
             /* Don't fail MD creation, just mark device as inactive */
-            hlthunk_close(md->hlthunk_fd);
-            md->hlthunk_fd = -1;
+            synDeviceRelease(md->deviceId);
+            md->deviceId = SYN_INVALID_DEVICE_ID;
+        } else {
+            md->hw_info.dramBaseAddress = dev_info.dramBaseAddress;
+            md->hw_info.dramSize = dev_info.dramSize;
+            md->hw_info.sramBaseAddress = dev_info.sramBaseAddress;
+            md->hw_info.sramSize = dev_info.sramSize;
+            md->hw_info.deviceId = dev_info.deviceId;
         }
 
         /* Validate critical hardware info fields */
-        if (md->hw_info.dram_size == 0) {
-            ucs_debug("Warning: Device %d reports zero DRAM size", device_index);
+        if (md->hw_info.dramSize == 0) {
+            ucs_debug("Warning: Device %d reports zero DRAM size", md->deviceId);
         }
 
         /* Detect enhanced DMA-BUF support (Gaudi2+ feature) */
-        if (md->hw_info.device_id >= HLTHUNK_DEVICE_GAUDI2) {
+        if (md->hw_info.deviceType >= synDeviceGaudi2) {
             /* TEMPORARILY DISABLED: Test if enhanced DMA-BUF API is available */
             /* This test call was causing segfaults during MD initialization */
-            ucs_debug("DMA-BUF support detection disabled to avoid segfaults for device %d", device_index);
+            ucs_debug("DMA-BUF support detection disabled to avoid segfaults for device %d", md->deviceId);
             //md->config.mapped_dmabuf_supported = 0;  /* Disable for now */
         }
 
-        /* Detect NIC ports for scale-out capabilities */
-        if (md->hw_info.nic_ports_mask != 0) {
-            md->config.nic_ports_available = __builtin_popcountll(md->hw_info.nic_ports_mask);
-            ucs_debug("Detected %d NIC ports for scale-out: mask=0x%lx on device %d",
-                     md->config.nic_ports_available, (unsigned long)md->hw_info.nic_ports_mask, device_index);
-        } else {
-            md->config.nic_ports_available = 0;
-            ucs_debug("No NIC ports detected for device %d", device_index);
-        }
-
-        ucs_debug("Successfully opened and initialized Gaudi device %d", device_index);
+        ucs_debug("Successfully opened and initialized Gaudi device %d", md->deviceId);
     } else {
         /* Device failed to open - initialize with safe defaults */
         md->config.nic_ports_available = 0;
-        ucs_debug("Gaudi device %d failed to open - MD created but marked as inactive", device_index);
+        ucs_debug("Gaudi device %d failed to open - MD created but marked as inactive", md->moduleId);
     }
 
     md->device_type = "GAUDI";

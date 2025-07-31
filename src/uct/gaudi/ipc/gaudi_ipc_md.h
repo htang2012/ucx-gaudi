@@ -11,6 +11,9 @@
 #include <ucs/datastruct/khash.h>
 #include <ucs/type/spinlock.h>
 #include <ucs/config/types.h>
+#include <habanalabs/synapse_api.h>
+#include <habanalabs/synapse_api_types.h>
+#include <habanalabs/synapse_common_types.h>
 
 /**
  * @file gaudi_ipc_md.h
@@ -53,7 +56,8 @@ typedef struct uct_gaudi_ipc_md_handle {
 typedef struct uct_gaudi_ipc_md {
     uct_md_t                 super;
     int                      device_count;      /* Number of Gaudi devices in node */
-    int                     *device_fds;        /* File descriptors for each device */
+    synDeviceId             *deviceIds;       /* Synapse device IDs */
+
     uint64_t                *channel_map;       /* Channel mapping between devices */
     pthread_mutex_t          channel_lock;      /* Lock for channel operations */
     int                      primary_device_fd; /* Primary device for this MD */
